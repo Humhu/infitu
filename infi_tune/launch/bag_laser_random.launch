@@ -1,0 +1,35 @@
+<launch>
+
+<include file="$(find infitu)/launch/episode_terminator.launch">
+    <arg name="reset_service" value="velocity_filter/reset"/>
+    <arg name="reward_topic" value="ape/reward"/>
+</include>
+
+<include file="$(find infitu)/launch/lo_features.launch">
+    <arg name="scan_topic" value="laser0/scan_raw"/>
+    <arg name="odom_topic" value="vel_odom"/>
+</include>
+
+<include file="$(find infitu)/launch/rewards.launch">
+    <arg name="odom_topic" value="vel_odom"/>
+</include>
+
+<node pkg="infitu" type="random_actions.py" name="random_actions" output="screen">
+    <rosparam>
+        dim: 9
+        set_topic: lo_interface/set_normalized_parameters
+        sample_mode: uniform
+        trigger_mode: timer
+        timer_rate: 0.5
+    </rosparam>
+</node>
+
+<node pkg="rosbag" type="record" name="bagger" output="screen" 
+args="-O /tmp/lo_features.bag 
+    scan_throttled 
+    belief_state/stream_raw 
+    ape/reward 
+    lo_interface/normalized_parameters
+    terminator/breaks"/>
+
+</launch>

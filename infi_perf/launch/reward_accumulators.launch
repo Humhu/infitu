@@ -1,0 +1,23 @@
+<launch>
+
+<group ns="rewards">
+
+    <node pkg="infitu" type="reward_accumulator_node" name="integrated_sse" output="screen">
+        <remap from="reward" to="sse/reward"/>
+        <rosparam>
+            time_integrate: true
+            normalize_by_time: true
+        </rosparam>
+    </node>
+
+    <node pkg="infitu" type="reward_accumulator_node" name="integrated_ape" output="screen">
+        <remap from="reward" to="ape/reward"/>
+        <rosparam>
+            time_integrate: true
+            normalize_by_time: true
+        </rosparam>
+    </node>
+
+</group>
+
+</launch>

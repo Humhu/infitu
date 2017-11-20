@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package>
+  <name>infi_feat</name>
+  <version>0.1.0</version>
+  <description>Feature computation and broadcasting for in-field parameter tuning</description>
+  
+  <maintainer email="humhu@cmu.edu">Humphrey Hu</maintainer>
+  
+  <license>AFLv3</license>
+  
+  <buildtool_depend>catkin</buildtool_depend>
+  
+  <build_depend>roscpp</build_depend>
+  <build_depend>argus_utils</build_depend>
+  <build_depend>broadcast</build_depend>
+
+  <run_depend>roscpp</run_depend>
+  <run_depend>argus_utils</run_depend>
+  <run_depend>broadcast</run_depend>
+  
+</package>
+

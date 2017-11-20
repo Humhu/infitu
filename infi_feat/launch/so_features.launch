@@ -1,0 +1,36 @@
+<launch>
+
+<arg name="image_topic" default="/imr/stereo_odometry/zed_driver/left/image_rect"/>
+<arg name="image_rate" default="10.0"/>
+<arg name="image_scale" default="0.125"/>
+
+<arg name="odom_topic" default="/vel_odom"/>
+
+<group ns="features">
+
+    <node pkg="topic_tools" type="throttle" name="image_throttler" output="screen" args="messages $(arg image_topic) $(arg image_rate) image_throttled"/>
+
+    <node pkg="camplex" type="resize_node" name="image_resizer" output="screen">
+        <remap from="image_raw" to="image_throttled"/>
+        <remap from="image_resized" to="feature_image"/>
+        <param name="output_scale" value="$(arg image_scale)"/>
+        <param name="image_only" value="true"/>
+    </node>
+
+    <node pkg="broadcast" type="belief_state_broadcaster" name="belief_state" output="screen">
+        <remap from="odom" to="$(arg odom_topic)"/>
+        <rosparam>
+            stream_name: belief_features
+            mode: push
+            descriptions: [vel_belief_features]
+            use_pose: false
+            use_pose_cov: false
+            use_vel: true
+            use_vel_cov: true
+            two_dimensional: true
+        </rosparam>
+    </node>
+
+</group>
+
+</launch>
