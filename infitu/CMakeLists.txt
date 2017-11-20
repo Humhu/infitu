@@ -24,19 +24,12 @@ add_service_files( FILES
                    SetRecording.srv
 )
 
-catkin_python_setup()
-
 generate_messages()
 
 # Use Boost for most utilities, threading
 find_package(Boost REQUIRED COMPONENTS random)
 
-catkin_package( 
-				# INCLUDE_DIRS    include
-
-                # LIBRARIES       infitu
-
-                CATKIN_DEPENDS  roscpp 
+catkin_package( CATKIN_DEPENDS  roscpp
                                 message_runtime
                                 argus_utils
                                 std_msgs
@@ -48,21 +41,6 @@ catkin_package(
                 DEPENDS         Boost
                                 system_lib
 )
-
-
-include_directories(   #include
-                       ${Boost_INCLUDE_DIRS}
-                       ${catkin_INCLUDE_DIRS}
-)
-
-# add_library(           infitu
-                    #    src/ContinuousParamPolicy.cpp
-                       #src/DiscretePolicy.cpp 
-# )
-# add_dependencies(      infitu 
-                    #    ${catkin_EXPORTED_TARGETS} 
-# )
-# target_link_libraries( infitu ${catkin_LIBRARIES} )
 
 add_executable( ape_reward_node nodes/rewards/ape_reward.cpp )
 target_link_libraries( ape_reward_node ${catkin_LIBRARIES} )
@@ -86,11 +64,18 @@ add_executable( belief_state_broadcaster nodes/belief_state_broadcaster.cpp )
 target_link_libraries( belief_state_broadcaster ${catkin_LIBRARIES} )
 
 
-# install( TARGETS             infitu
-#          ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#          LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-#          RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-# )
+install( TARGETS        ape_reward_node 
+                        sse_reward_node 
+                        oll_reward_node 
+                        reward_accumulator_node 
+                        bag_replayer 
+                        multi_bag_replayer
+                        belief_state_broadcaster
+
+         ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+         LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+         RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
 ## Mark executables and/or libraries for installation
 install( DIRECTORY           include/${PROJECT_NAME}/
