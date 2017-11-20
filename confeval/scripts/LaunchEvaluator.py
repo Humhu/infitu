@@ -4,7 +4,7 @@ import subprocess32 as subprocess
 import rospy
 from threading import Lock
 
-from infitu.srv import StartEvaluation, StartTeardown, StartSetup
+from confeval.srv import StartEvaluation, StartTeardown, StartSetup
 
 # NOTE This has been deprecated due to bugs in roscore not handling
 # constant launching/shutting down of nodes very well

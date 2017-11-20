@@ -2,30 +2,40 @@
 
 import rospy
 from threading import Lock
-from percepto_msgs.srv import GetBlockCritique, GetBlockCritiqueRequest, GetBlockCritiqueResponse
+from percepto_msgs.srv import GetCritique, GetCritiqueRequest, GetCritiqueResponse
 from percepto_msgs.srv import SetParameters, SetParametersRequest
-from infitu.srv import StartEvaluation, StartTeardown, SetRecording
+from confeval.srv import StartEvaluation, StartSetup, StartTeardown, SetRecording
 from fieldtrack.srv import ResetFilter, ResetFilterRequest
 from argus_utils import wait_for_service
 
 
-class BlockParameterEvaluator:
+class EmpiricalParameterEvaluator:
 
     def __init__(self):
+        self.mutex = Lock()
+
+        self.index_mode = rospy.get_param('~indexing_mode', 'as_is')
+        if self.index_mode == 'as_is':
+            pass  # TODO
+        elif self.index_mode == 'block':
+            # Parse block definitions
+            block_info = rospy.get_param('~blocks')
+            self.blocks = {}
+            for name, params in block_info:
+                if name in self.blocks:
+                    raise ValueError('Block name %d repeated' % name)
+                self.blocks[name] = params
+        elif self.index_mode == 'individual':
+            pass  # TODO
+
+        self.verbose = rospy.get_param('~verbose', False)
+
         # Create parameter setter proxy
         setter_topic = rospy.get_param('~parameter_set_service')
         wait_for_service(setter_topic)
         self.setter_proxy = rospy.ServiceProxy(setter_topic,
                                                SetParameters,
                                                True)
-
-        # Parse block definitions
-        block_info = rospy.get_param('~blocks')
-        self.blocks = {}
-        for name, params in block_info:
-            if name in self.blocks:
-                raise ValueError('Block name %d repeated' % name)
-            self.blocks[name] = params
 
         # Create evaluation trigger proxy
         self.mode = rospy.get_param('~evaluation_mode')
@@ -38,16 +48,28 @@ class BlockParameterEvaluator:
                                                        True)
         elif self.mode == 'fixed_duration':
             self.evaluation_time = rospy.get_param('~evaluation_time')
+        elif self.mode == 'interactive':
+            pass
         else:
             raise ValueError('Unknown mode %s' % self.mode)
+
+        # Check for evaluation setup
+        self.setup_proxy = None
+        setup_topic = rospy.get_param('~start_setup_service', None)
+        if setup_topic is not None:
+            wait_for_service(setup_topic)
+            self.setup_proxy = rospy.ServiceProxy(setup_topic,
+                                                  StartSetup,
+                                                  True)
 
         # Check for evaluation teardown
         self.teardown_proxy = None
         teardown_topic = rospy.get_param('~start_teardown_service', None)
         if teardown_topic is not None:
             wait_for_service(teardown_topic)
-            self.teardown_proxy = rospy.ServiceProxy(
-                teardown_topic, StartTeardown, True)
+            self.teardown_proxy = rospy.ServiceProxy(teardown_topic,
+                                                     StartTeardown,
+                                                     True)
 
         # Create filter reset proxy
         self.reset_proxy = None
@@ -73,7 +95,7 @@ class BlockParameterEvaluator:
         eval_delay = rospy.get_param('~evaluation_delay', 0.0)
         self.evaluation_delay = rospy.Duration(eval_delay)
         self.critique_service = rospy.Service('~get_critique',
-                                              GetBlockCritique,
+                                              GetCritique,
                                               self.critique_callback)
 
     def start_recording(self):
@@ -88,30 +110,27 @@ class BlockParameterEvaluator:
 
     def stop_recording(self):
         """Stop recording and return evaluation. Returns None if fails."""
-
         try:
             feedback = []
             for name, recorder in self.recorders.iteritems():
                 res = recorder.call(False).evaluation
+                feedback.append((name, res))
                 if name == self.critique_record:
                     critique = res
-                else:
-                    feedback.append((name, res))
         except rospy.ServiceException:
             rospy.logerr('Could not stop recording.')
             return None
 
         return (critique, feedback)
 
-    def set_parameters(self, inval, block):
+    def set_parameters(self, inval):
         """Set the parameters to be evaluated. Returns success."""
-
         preq = SetParametersRequest()
         preq.parameters = inval
         try:
             self.setter_proxy.call(preq)
         except rospy.ServiceException:
-            rospy.logerr('Could not set parameters to %s', (str(inval),))
+            rospy.logerr('Could not set parameters to %s', str(inval))
             return False
         return True
 
@@ -137,10 +156,30 @@ class BlockParameterEvaluator:
             except rospy.ServiceException:
                 rospy.logerr('Could not run evaluation.')
                 return False
-            return True
+
         elif self.mode == 'fixed_duration':
             rospy.sleep(self.evaluation_time)
+
+        elif self.mode == 'interactive':
+            rospy.loginfo('Waiting on user input to end evaluation...')
+            raw_input('Press a key to end evaluation...')
+
+        return True
+
+    def start_setup(self):
+        if self.mode == 'interactive':
+            rospy.loginfo('Waiting on user input to begin evaluation...')
+            raw_input('Press a key to begin evaluation...')
+
+        if self.setup_proxy is None:
             return True
+
+        try:
+            self.setup_proxy.call()
+        except rospy.ServiceException:
+            rospy.logerr('Could not setup.')
+            return False
+        return True
 
     def start_teardown(self):
         if self.teardown_proxy is None:
@@ -149,46 +188,61 @@ class BlockParameterEvaluator:
         try:
             self.teardown_proxy.call()
         except rospy.ServiceException:
-            rospy.logerr('Could not teardown.')
+            rospy.logerr('Could not teardown')
             return False
+
         return True
 
     def critique_callback(self, req):
+        with self.mutex:
+            if not self.start_setup():
+                return None
 
-        # Call parameter setter
-        if not self.set_parameters(req.input):
-            return None
+            # Call parameter setter
+            if not self.set_parameters(req.input):
+                self.start_teardown()
+                return None
 
-        # Reset state estimator
-        if not self.reset_filter():
-            return None
+            # Reset state estimator
+            if not self.reset_filter():
+                self.start_teardown()
+                return None
 
-        # Wait before starting
-        rospy.sleep(self.evaluation_delay)
+            # Wait before starting
+            # NOTE This catches instances when relying on sim time
+            if self.evaluation_delay.to_sec() > 0:
+                rospy.sleep(self.evaluation_delay)
 
-        if not self.start_recording():
-            return None
+            if not self.start_recording():
+                self.start_teardown()
+                return None
 
-        # Wait until evaluation is done
-        if not self.run_evaluation():
-            return None
+            # Wait until evaluation is done
+            if not self.run_evaluation():
+                self.start_teardown()
+                return None
 
-        # Get outcomes
-        res = GetCritiqueResponse()
-        res.critique, feedback = self.stop_recording()
-        res.feedback_names = [f[0] for f in feedback]
-        res.feedback_values = [f[1] for f in feedback]
+            # Get outcomes
+            res = GetCritiqueResponse()
+            records = self.stop_recording()
+            if records is None:
+                self.start_teardown()
+                return None
 
-        if not self.start_teardown():
-            return None
+            res.critique, feedback = records
+            res.feedback_names = [f[0] for f in feedback]
+            res.feedback_values = [f[1] for f in feedback]
 
-        return res
+            if not self.start_teardown():
+                return None
+
+            return res
 
 
 if __name__ == '__main__':
-    rospy.init_node('block_parameter_evaluator')
+    rospy.init_node('empirical_parameter_evaluator')
     try:
-        epe = BlockParameterEvaluator()
+        epe = EmpiricalParameterEvaluator()
         rospy.spin()
     except rospy.ROSInterruptException:
         pass
