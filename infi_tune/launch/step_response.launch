@@ -1,0 +1,13 @@
+<launch>
+
+<arg name="random_seed" default="1"/>
+<arg name="step_time" default="5"/>
+
+<!--<include file="$(find foxy_localization_evaluation)/launch/rewards.launch"/>-->
+
+<include file="$(find infitu)/launch/step_response.launch" pass_all_args="true">
+    <arg name="mode" value="joint"/>
+    <arg name="action_dim" value="$(arg action_dim)"/>
+</include>
+
+</launch>

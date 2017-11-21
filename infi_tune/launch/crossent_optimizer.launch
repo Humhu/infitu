@@ -1,0 +1,38 @@
+<launch>
+
+<arg name="resume" default="true"/>
+<arg name="base_dir" default="/home/foxconn"/>
+
+<node pkg="optim" type="CrossEntropyOptimization.py" name="ce_optimizer" output="screen" required="true">
+    <rosparam>
+        critic_service: closed_trajectory/get_critique
+
+        random_seed: 1
+        
+        input_dimension: 10
+        initial_mean: 0
+        initial_std_dev: 0.5
+        input_lower_bound: -1
+        input_upper_bound: 1
+
+        population_size: 15
+        elite_size: 5
+        elite_lifespan: 3
+        diagonal_only: true
+
+        inflation_scale: 1.1
+        inflation_offset: 0
+        inflation_decay_rate: 0.5
+
+        convergence:
+            input_tolerance: 0.05
+            output_tolerance: 0.001
+            output_tolerance_iterations: 5
+            max_evaluations: 500
+    </rosparam>
+    <param name="progress_path" value="$(arg base_dir)/bayesian_progress.pkl"/>
+    <param name="output_path" value="$(arg base_dir)/bayesian_result.pkl"/>
+    <param name="load_path" value="$(arg base_dir)/bayesian_progress.pkl" if="$(arg resume)"/>
+</node>
+
+</launch>

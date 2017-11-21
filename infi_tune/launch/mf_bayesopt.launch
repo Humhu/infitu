@@ -1,0 +1,61 @@
+<launch>
+
+<arg name="output_path"/>
+<arg name="runtime"/>
+<arg name="critique_topic"/>
+<arg name="dim"/>
+
+<node pkg="optim" type="MultiFidelityBayesianOptimizer.py" name="optimizer" output="screen" required="true">
+    <param name="output_path" value="$(arg output_path)"/>
+    <param name="convergence/max_time" value="$(arg runtime)"/>
+    <param name="interface/topic" value="$(arg critique_topic)"/>
+    <param name="dim" value="$(arg dim)"/>
+    <rosparam>
+        run_on_start: true
+        interface:
+            verbose: true
+            wait_for_topic: true
+
+        exploration_mode: time
+        exploration_rate_alpha: 0.5
+        exploration_rate_gamma: 0.2
+
+        reward_model:
+            type: gaussian_process
+            kernel_type: matern
+            num_fidelities: 1
+            bias: 0.1
+            batch_retries: 9
+            refine_ll_delta: 1.0
+            refine_period: 5
+            refine_retries: 4
+            verbose: true
+
+        auxiliary_optimizer:
+            type: bfgs
+            mode: max
+            num_restarts: 3
+            ftol: 1e-6
+            gtol: 1e-6
+            maxiter: 500
+
+        initialization:
+            num_samples: 10
+            min_variation: 0.5
+            method: uniform
+
+        convergence:
+            x_tol: 0
+
+        lower_bounds: -1
+        upper_bounds: 1
+        
+        fidelity_gammas: 0.1
+        gamma_inflation_coeff: 1.25
+        fidelity_cost_ratio_coeff: 3.0
+        fidelity_costs: [1]
+
+    </rosparam>
+</node>
+
+</launch>

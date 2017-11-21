@@ -1,0 +1,32 @@
+<launch>
+
+<arg name="resume" default="true"/>
+<arg name="base_dir" default="/home/foxconn"/>
+<arg name="verbose" default="false"/>
+<arg name="max_evals"/>
+
+<node pkg="optim" type="CMAOptimization.py" name="cma_optimizer" output="screen" required="true">
+    <param name="interface/verbose" value="$(arg verbose)"/>
+    <param name="verbose" value="$(arg verbose)"/>
+    <rosparam>
+        interface:
+            topic: closed_trajectory/get_critique
+
+        random_seed: 1
+        initial_std_dev: 0.5
+
+        input_dimension: 6
+        input_lower_bound: -1
+        input_upper_bound: 1
+
+        convergence:
+            input_tolerance: 0.05
+            output_tolerance: 0.001
+            max_evaluations: 300
+    </rosparam>
+    <param name="progress_path" value="$(arg base_dir)/bayesian_progress.pkl"/>
+    <param name="output_path" value="$(arg base_dir)/bayesian_result.pkl"/>
+    <param name="load_path" value="$(arg base_dir)/bayesian_progress.pkl" if="$(arg resume)"/>
+</node>
+
+</launch>

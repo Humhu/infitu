@@ -1,0 +1,60 @@
+<launch>
+
+<arg name="resume"/>
+<arg name="base_dir" default="/home/foxconn"/>
+<arg name="result_file" default="bayesian_result.pkl"/>
+<arg name="log_rewards"/>
+<arg name="seed" default="1"/>
+<arg name="init_path"/>
+
+<node pkg="optim" type="BayesianOptimization.py" name="bayesian_optimizer" output="screen" required="true">
+    <param name="random_seed" value="$(arg seed)"/>
+    <param name="model/initial_path" value="$(arg init_path)"/>
+    <rosparam>
+        critic_service: closed_trajectory/get_critique
+
+        save_period: 10
+        batch_period: 40
+        final_samples: 10
+
+        cma_popsize: 25
+        cma_restarts: 1
+
+        input_dimension: 6
+        input_upper_bound: 1
+        input_lower_bound: -1
+        output_upper_bound: inf
+        output_lower_bound: -inf
+
+        initialization_mode: max
+        optimization_mode: max
+
+        model:
+            hyperparam_refine_ll_delta: 1.0
+            hyperparam_refine_retries: 3
+            init_noise: 1.0
+            noise_bounds: [0.001, 1]
+            init_scale: 1.0
+            scale_bounds: [1e-3, 1e3]
+            init_kernel_length: 1.0
+            kernel_length_bounds: [0.01, 10]
+            kernel_roughness: 1.5
+
+            acquisition_tolerance: 1e-6
+            
+            normalize_raw_scale: true
+            init_beta: 0.01
+            beta_scale: 10.0
+
+        convergence:
+            max_evaluations: 100
+    </rosparam>
+    <param name="negative_rewards" value="$(arg log_rewards)"/>
+    <param name="model/model_log_reward" value="$(arg log_rewards)"/>
+
+    <param name="progress_path" value="$(arg base_dir)/bayesian_progress.pkl"/>
+    <param name="output_path" value="$(arg base_dir)/$(arg result_file)"/>
+    <param name="load_path" value="$(arg base_dir)/bayesian_progress.pkl" if="$(arg resume)"/>
+</node>
+
+</launch>
