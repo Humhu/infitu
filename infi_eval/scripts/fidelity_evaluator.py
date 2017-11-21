@@ -42,7 +42,8 @@ class FidelityEvaluator:
             return None
 
         req.input = x
-        return self.evaluators[fid].raw_call(req)
+        res = self.evaluators[fid].raw_call(req.input, req.names)
+        return res
 
 if __name__ == '__main__':
     rospy.init_node('multi_fidelity_evaluator')
