@@ -1,8 +1,8 @@
 <launch>
 
-<arg name="truth_topic" default="/cmd_vel"/>
+<arg name="truth_topic" default="cmd_vel"/>
 <arg name="truth_mode" default="twist"/>
-<arg name="odom_topic" default="/vel_odom"/>
+<arg name="odom_topic" default="vel_odom"/>
 
 <node pkg="infitu" type="sse_reward_node" name="sse" output="screen">
     <remap from="estimate" to="$(arg odom_topic)"/>
@@ -10,7 +10,7 @@
     <param name="truth_mode" value="$(arg truth_mode)"/>
     <rosparam>
         estimate_mode: odom
-        pose_err_weights: [0,0,0,0,0,0]
+        use_vel: true
         vel_err_weights: [1,1,0,0,0,1]
         log_rewards: true
         min_reward: -8
@@ -19,7 +19,7 @@
 </node>
 
 <node pkg="infitu" type="ape_reward_node" name="ape" output="screen">
-  <remap from="/odom" to="$(arg odom_topic)"/>
+  <remap from="odom" to="$(arg odom_topic)"/>
   <rosparam>
     pose_cov_weights: [0,0,0,0,0,0]
     vel_cov_weights: [1,1,0,0,0,1]
