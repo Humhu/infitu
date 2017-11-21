@@ -4,7 +4,7 @@ import rospy
 import numpy as np
 from itertools import izip
 
-from infi_msgs.srv import GetCritique, GetCritiqueResponse
+from percepto_msgs.srv import GetCritique, GetCritiqueResponse
 from optim import CritiqueInterface
 from argus_utils import wait_for_service
 

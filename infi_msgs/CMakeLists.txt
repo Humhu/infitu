@@ -15,7 +15,6 @@ add_message_files( FILES
 )
 
 add_service_files( FILES
-                   GetCritique.srv
                    GetParameters.srv
                    SetParameters.srv
                    StartEvaluation.srv

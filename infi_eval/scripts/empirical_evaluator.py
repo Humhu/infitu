@@ -2,7 +2,7 @@
 
 from threading import Lock
 import rospy
-from infi_msgs.srv import GetCritique, GetCritiqueResponse,
+from percepto_msgs.srv import GetCritique, GetCritiqueResponse,
 from infi_msgs.srv import SetParameters, SetParametersRequest,
 from infi_msgs.srv import StartEvaluation, StartSetup, StartTeardown, SetRecording
 from fieldtrack.srv import ResetFilter, ResetFilterRequest
