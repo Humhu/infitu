@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
 import rospy
-import infitu
+import infi_inter
 from threading import Lock
 
-from percepto_msgs.srv import SetParameters
-from percepto_msgs.srv import GetParameters, GetParametersResponse
+from infi_msgs.srv import SetParameters
+from infi_msgs.srv import GetParameters, GetParametersResponse
 from broadcast import Transmitter
 
 
@@ -14,7 +14,7 @@ class NumericParamInterface(object):
         self.mutex = Lock()
 
         interface_info = rospy.get_param('~')
-        self.interface = infitu.parse_interface(interface_info)
+        self.interface = infi_inter.parse_interface(interface_info)
 
         self.set_norm_param = rospy.Service('~set_normalized_parameters',
                                             SetParameters,
