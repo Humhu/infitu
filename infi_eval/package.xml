@@ -21,6 +21,8 @@
   <run_depend>rosbag_lib</run_depend>
   <run_depend>infi_msgs</run_depend>  
   <run_depend>fieldtrack</run_depend>
+  <run_depend>percepto_msgs</run_depend>
+  <run_depend>optim</run_depend>  
   
 </package>
 

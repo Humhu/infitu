@@ -3,7 +3,7 @@
 from itertools import izip
 import numpy as np
 import rospy
-from infi_msgs.srv import GetCritique, GetCritiqueResponse
+from percepto_msgs.srv import GetCritique, GetCritiqueResponse
 from argus_utils import wait_for_service
 from optim import CritiqueInterface
 
@@ -18,6 +18,19 @@ class SamplingEvaluator:
         self.interface = CritiqueInterface(critique_topic)
         self.num_trials = rospy.get_param('~num_trials')
         self.server = rospy.Service('~get_critique', GetCritique, self.critique_callback)
+        
+        self.reduce_mode = rospy.get_param('~reduce_mode', 'mean')
+        self._reduce([0,0]) # Testing validity
+
+    def _reduce(self, critiques):
+        if self.reduce_mode == 'mean':
+            return np.mean(critiques)
+        elif self.reduce_mode == 'min':
+            return np.min(critiques)
+        elif self.reduce_mode == 'max':
+            return np.max(critiques)
+        else:
+            raise ValueError('Unknown reduce mode %s' % self.reduce_mode)
 
     def critique_callback(self, req):
 
@@ -40,7 +53,7 @@ class SamplingEvaluator:
 
         # Parse the responses, reporting means and variances
         res = GetCritiqueResponse()
-        res.critique = np.mean(critiques)
+        res.critique = self._reduce(critiques)
 
         res.feedback_names.append('critique_var')
         crit_var = np.var(critiques)
