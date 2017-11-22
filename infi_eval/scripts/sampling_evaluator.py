@@ -53,7 +53,7 @@ class SamplingEvaluator:
 
         # Parse the responses, reporting means and variances
         res = GetCritiqueResponse()
-        res.critique = self._reduce(criiques)
+        res.critique = self._reduce(critiques)
 
         res.feedback_names.append('critique_var')
         crit_var = np.var(critiques)
