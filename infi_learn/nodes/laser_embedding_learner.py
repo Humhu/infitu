@@ -37,7 +37,6 @@ class LaserEmbeddingLearner(object):
 
         self.frontend = rr.DataSourceFrontend(source=self.state_source,
                                               backend=self.backend)
-        #self.frontend = rr.LaserFrontend(self.backend)
 
         self.sep_dist = rospy.get_param('~learning/separation_distance')
         self.batch_size = rospy.get_param('~learning/batch_size')

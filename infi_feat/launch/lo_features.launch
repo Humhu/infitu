@@ -4,7 +4,7 @@
 <arg name="scan_rate" default="10.0"/>
 
 <arg name="odom_topic"/>
-<arg name="odom_rate" default="20.0"/>
+<arg name="odom_rate" default="10.0"/>
 
     <node pkg="topic_tools" type="throttle" name="scan_throttler" output="screen" args="messages $(arg scan_topic) $(arg scan_rate) scan_throttled"/>
 

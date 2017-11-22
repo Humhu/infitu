@@ -1,0 +1,15 @@
+<launch>
+
+<include file="$(find infi_learn)/launch/episode_terminator.launch">
+    <arg name="reset_service" value="velocity_filter/reset"/>
+    <arg name="reward_topic" value="ape/reward"/>
+</include>
+
+<include file="$(find infi_feat)/launch/lo_features.launch">
+    <arg name="scan_topic" value="laser0/scan_raw"/>
+    <arg name="odom_topic" value="vel_odom"/>
+</include>
+
+<include file="$(find infi_perf)/launch/rewards_vel2d.launch"/>
+
+</launch>

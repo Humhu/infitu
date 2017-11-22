@@ -1,6 +1,6 @@
 <launch>
 
-<include file="$(find infi_eval)/launch/episode_terminator.launch">
+<include file="$(find infi_learn)/launch/episode_terminator.launch">
     <arg name="reset_service" value="velocity_filter/reset"/>
     <arg name="reward_topic" value="ape/reward"/>
 </include>
@@ -10,9 +10,7 @@
     <arg name="odom_topic" value="vel_odom"/>
 </include>
 
-<include file="$(find infitu)/launch/rewards.launch">
-    <arg name="odom_topic" value="vel_odom"/>
-</include>
+<include file="$(find infi_perf)/launch/rewards_vel2d.launch"/>
 
 <node pkg="infi_tune" type="random_actions.py" name="random_actions" output="screen">
     <rosparam>
