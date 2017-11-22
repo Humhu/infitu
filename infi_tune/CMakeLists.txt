@@ -4,8 +4,6 @@ find_package(catkin REQUIRED)
 
 catkin_package()
 
-catkin_python_setup()
-
 # install
 file(GLOB launch_files launch/*.launch)
 install(FILES ${launch_files}
