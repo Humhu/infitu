@@ -23,12 +23,14 @@ class EpisodeTerminator(object):
 
         self.break_pub = rospy.Publisher('~breaks', EpisodeBreak, queue_size=1)
         self.reward_sub = rospy.Subscriber('reward', RewardStamped,
+                                           queue_size=1,
                                            callback=self.reward_callback)
         
         self.start_delay = rospy.get_param('~start_delay')
+        self.episode_start = rospy.Time.now()
 
     def reward_callback(self, msg):
-        if msg.reward > self.min_reward:
+        if msg.reward > self.min_reward or msg.header.stamp < self.episode_start:
             return
         
         out = EpisodeBreak()
@@ -53,6 +55,7 @@ class EpisodeTerminator(object):
         out.cause = 'Starting new episode after %f second pause' % self.start_delay
         self.break_pub.publish(out)
         rospy.loginfo(out.cause)
+        self.episode_start = out.time
 
 if __name__ == '__main__':
     rospy.init_node('episode_terminator')
