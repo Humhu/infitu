@@ -9,11 +9,11 @@ import numpy as np
 
 from argus_utils import TimeSeries
 from sensor_msgs.msg import LaserScan
-from percepto_msgs.msg import RewardStamped, EpisodeBreak
+from infi_msgs.msg import RewardStamped, EpisodeBreak
 from broadcast.msg import FloatVectorStamped
 
-from relearn_reconfig.interfaces import SynchronizationFrontend
-from relearn_reconfig.utils import LaserImagePainter
+from interfaces import SynchronizationFrontend
+from utils import LaserImagePainter
 
 import matplotlib.pyplot as plt
 

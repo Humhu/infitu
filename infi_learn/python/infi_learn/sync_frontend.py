@@ -4,10 +4,10 @@ import rospy
 import adel as ad
 
 from argus_utils import TimeSeries
-from percepto_msgs.msg import RewardStamped, EpisodeBreak
+from infi_msgs.msg import RewardStamped, EpisodeBreak
 from broadcast.msg import FloatVectorStamped
 
-from relearn_reconfig.interfaces import SynchronizationFrontend
+from interfaces import SynchronizationFrontend
 
 
 

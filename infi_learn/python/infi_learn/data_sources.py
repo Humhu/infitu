@@ -7,7 +7,7 @@ import numpy as np
 
 import rospy
 from sensor_msgs.msg import Image, LaserScan
-from relearn_reconfig.utils import LaserImagePainter
+from utils import LaserImagePainter
 from cv_bridge import CvBridge, CvBridgeError
 from broadcast.msg import FloatVectorStamped
 from argus_utils import TimeSeries

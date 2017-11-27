@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 import adel
-import infitu as rr
+import infi_learn as rr
 import rospy
 import tensorflow as tf
 import itertools

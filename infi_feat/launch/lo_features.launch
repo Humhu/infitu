@@ -6,22 +6,22 @@
 <arg name="odom_topic"/>
 <arg name="odom_rate" default="10.0"/>
 
-    <node pkg="topic_tools" type="throttle" name="scan_throttler" output="screen" args="messages $(arg scan_topic) $(arg scan_rate) scan_throttled"/>
+<node pkg="topic_tools" type="throttle" name="scan_throttler" output="screen" args="messages $(arg scan_topic) $(arg scan_rate) scan_throttled"/>
 
-    <node pkg="topic_tools" type="throttle" name="odom_throttler" output="screen" args="messages $(arg odom_topic) $(arg odom_rate) odom_throttled"/>
+<node pkg="topic_tools" type="throttle" name="odom_throttler" output="screen" args="messages $(arg odom_topic) $(arg odom_rate) odom_throttled"/>
 
-    <node pkg="broadcast" type="belief_state_broadcaster" name="belief_state" output="screen">
-        <remap from="odom" to="odom_throttled"/>
-        <rosparam>
-            stream_name: belief_features
-            mode: push
-            descriptions: [vel_belief_features]
-            use_pose: false
-            use_pose_cov: false
-            use_vel: true
-            use_vel_cov: true
-            two_dimensional: true
-        </rosparam>
-    </node>
+<node pkg="broadcast" type="belief_state_broadcaster" name="belief_state" output="screen">
+    <remap from="odom" to="odom_throttled"/>
+    <rosparam>
+        stream_name: belief_features
+        mode: push
+        descriptions: [vel_belief_features]
+        use_pose: false
+        use_pose_cov: false
+        use_vel: true
+        use_vel_cov: true
+        two_dimensional: true
+    </rosparam>
+</node>
 
 </launch>

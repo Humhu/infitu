@@ -4,7 +4,7 @@
 import tensorflow as tf
 import adel
 import itertools
-import relearn_reconfig.utils as rru
+import utils as rru
 
 
 class EmbeddingLearner(object):
