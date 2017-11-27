@@ -5,7 +5,7 @@
 <arg name="min_reward" default="5.0"/>
 <arg name="start_delay" default="1.0"/>
 
-<node pkg="infi_tune" type="episode_terminator.py" name="terminator" output="screen" clear_params="true">
+<node pkg="infi_learn" type="episode_terminator.py" name="terminator" output="screen" clear_params="true">
     <remap from="reward" to="$(arg reward_topic)"/>
     <param name="reset_service" value="$(arg reset_service)"/>
     <param name="min_reward" value="$(arg min_reward)"/>

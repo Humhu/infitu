@@ -10,7 +10,7 @@
 
 <node pkg="topic_tools" type="throttle" name="odom_throttler" output="screen" args="messages $(arg odom_topic) $(arg odom_rate) odom_throttled"/>
 
-<node pkg="broadcast" type="belief_state_broadcaster" name="belief_state" output="screen">
+<node pkg="infi_feat" type="belief_state_broadcaster" name="belief_state" output="screen">
     <remap from="odom" to="odom_throttled"/>
     <rosparam>
         stream_name: belief_features
