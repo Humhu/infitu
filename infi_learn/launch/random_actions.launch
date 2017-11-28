@@ -1,0 +1,19 @@
+<launch>
+
+<arg name="break_topic"/>
+<arg name="parameter_service"/>
+<arg name="dim"/>
+
+<node pkg="infi_learn" type="random_actions.py" name="random_actions" output="screen">
+    <remap from="break" to="$(arg break_topic)"/>
+    <param name="set_topic" value="$(arg parameter_service)"/>
+    <param name="dim" value="$(arg dim)"/>
+    <rosparam>
+        sample_mode: uniform
+        num_actions: 5
+        trigger_mode: break
+        timer_rate: 0.5
+    </rosparam>
+</node>
+
+</launch>

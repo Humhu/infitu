@@ -3,9 +3,9 @@
 import rospy
 import numpy as np
 import random
-from percepto_msgs.srv import SetParameters, SetParametersRequest
-from percepto_msgs.msg import EpisodeBreak
-
+from infi_msgs.srv import SetParameters, SetParametersRequest
+from infi_msgs.msg import EpisodeBreak
+from argus_utils import wait_for_service
 
 class RandomActions(object):
     """Performs random actions at a fixed rate.
@@ -28,6 +28,7 @@ class RandomActions(object):
             self.actions = [self._sample_action() for _ in range(n)]
 
         set_topic = rospy.get_param('~set_topic')
+        wait_for_service(set_topic)
         self.param_proxy = rospy.ServiceProxy(set_topic, SetParameters,
                                               persistent=True)
 
