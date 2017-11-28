@@ -16,5 +16,7 @@
   
   <run_depend>rospy</run_depend>
   <run_depend>argus_utils</run_depend>
+  <run_depend>geometry_msgs</run_depend>
+  <run_depend>infi_msgs</run_depend>
   
 </package>
