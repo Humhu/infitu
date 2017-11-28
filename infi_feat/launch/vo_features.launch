@@ -1,12 +1,10 @@
 <launch>
 
-<arg name="image_topic" default="/imr/visual_odometry/zed_driver/left/image_rect"/>
+<arg name="image_topic"/>
 <arg name="image_rate" default="10.0"/>
 <arg name="image_scale" default="0.1"/>
 
 <arg name="odom_topic" default="/vel_odom"/>
-
-<group ns="features">
 
     <node pkg="topic_tools" type="throttle" name="image_throttler" output="screen" args="messages $(arg image_topic) $(arg image_rate) image_throttled"/>
 
@@ -17,7 +15,7 @@
         <param name="image_only" value="true"/>
     </node>
 
-    <node pkg="broadcast" type="belief_state_broadcaster" name="belief_state" output="screen">
+    <node pkg="infi_feat" type="belief_state_broadcaster" name="belief_state" output="screen">
         <remap from="odom" to="$(arg odom_topic)"/>
         <rosparam>
             stream_name: belief_features
@@ -30,7 +28,5 @@
             two_dimensional: true
         </rosparam>
     </node>
-
-</group>
 
 </launch>
