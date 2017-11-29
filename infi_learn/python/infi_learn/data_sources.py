@@ -7,7 +7,10 @@ import numpy as np
 
 import rospy
 from sensor_msgs.msg import Image, LaserScan
+
 from utils import LaserImagePainter
+from plotting import Plottable
+
 from cv_bridge import CvBridge, CvBridgeError
 from broadcast.msg import FloatVectorStamped
 from argus_utils import TimeSeries
@@ -56,6 +59,7 @@ class MultiDataSource(object):
             secondaries = src.get_data(until)
             for t, d in secondaries:
                 self.buffers[i].insert(t, d)
+    
 
         out = []
         for t, data in primaries:
@@ -70,7 +74,6 @@ class MultiDataSource(object):
 
         for b in self.buffers:
             b.trim_earliest_to(until - self.tol)
-
         return out
 
 class VectorSource(DataSource):
@@ -88,7 +91,7 @@ class VectorSource(DataSource):
                          data=msg.values)
 
 
-class LaserSource(DataSource):
+class LaserSource(DataSource, Plottable):
     """Subscribes to a laser scan and optionally paints them to a 2D image.
     """
 
@@ -110,6 +113,7 @@ class LaserSource(DataSource):
             rospy.loginfo('Enabled painting with image size: %s',
                           str(self.painter.img_size))
             self.enable_vis = enable_vis
+            self.pim = None
             if self.enable_vis:
                 self.pfig = plt.figure()
 
@@ -129,14 +133,20 @@ class LaserSource(DataSource):
             ranges = self.painter.scan_to_image(ranges)
             if self.enable_vis:
                 plt.figure(self.pfig.number)
-                plt.gca().clear()
-                plt.imshow(ranges[:,:,0])
-                plt.draw()
+                if self.pim is None:
+                    self.pim = plt.imshow(ranges[:,:,0])
+                else:
+                    self.pim.set_data(ranges[:,:,0])
         else:
             ranges[np.isnan(ranges)] = self.laser_nan_val
             ranges[ranges == float('inf')] = self.laser_inf_val
         return ranges
 
+
+    def draw(self):
+        if self.enable_vis:
+            plt.figure(self.pfig.number)
+            plt.draw()
 
 class ImageSource(DataSource):
     """Subscribes to an image topic.

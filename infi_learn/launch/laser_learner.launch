@@ -38,16 +38,15 @@
     <rosparam>
         frontend:
             laser_dim: 681
-            belief_dim: 9
             action_dim: 9
+            belief_dim: 3
 
             laser_nan_value: -1
             laser_inf_value: 5.6
 
-            dt: 3.0
-            lag: 1.0
+            dt: 2.0
+            lag: 3.0
             time_tolerance: 0.1
-            belief_dt_tol: 0.1
 
 
             laser_fov: [-2.0943951, 2.0943951]
@@ -72,15 +71,15 @@
         network:
             image_subnet:
                 n_layers: 3
-                n_filters: [16, 8, 4]
-                filter_sizes: [5, 5, 5]
+                n_filters: [8, 8, 4]
+                filter_sizes: [4, 4, 4]
                 conv_strides: 1
-                pool_sizes: [4, 5, 5]
-                pool_strides: [2, 3, 3]
+                pool_sizes: [4, 4, 5]
+                pool_strides: [2, 2, 3]
             vector_subnet:
                 n_layers: 3
-                n_units: 8
-                n_outputs: 4
+                n_units: [16, 16]
+                n_outputs: 16
                 final_rect: relu
             final_subnet:
                 n_layers: 3

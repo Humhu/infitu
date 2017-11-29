@@ -24,6 +24,7 @@ class SynchronizationFrontend(object):
             The current time in seconds since the epoch
         """
         sars, terms = self.spin_impl(current_time)
+        print '%d sars, %d terms' % (len(sars), len(terms))
         self._backend.report_sars_tuples(sars)
         self._backend.report_terminals(terms)
 
