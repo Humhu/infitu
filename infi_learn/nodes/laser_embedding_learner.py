@@ -8,7 +8,7 @@ import itertools
 
 import matplotlib.pyplot as plt
 
-# TODO Generalize to use different frontends
+# TODO Generalize to use different frontends?
 
 
 class LaserEmbeddingLearner(object):
@@ -68,6 +68,12 @@ class LaserEmbeddingLearner(object):
         self.embeddings = {}
         self.sess = tf.Session()
 
+        self.error_plotter = rr.ContinuousPlotter()
+        
+        self.plot_group = rr.PlottingGroup()
+        self.plot_group.add_plottable(self.error_plotter)
+        self.plot_group.add_plottable(self.laser_source)
+
     def init_feed(self, training):
         """Initializes a feed dict for training or execution.
 
@@ -104,8 +110,9 @@ class LaserEmbeddingLearner(object):
                                                   scope='embed_%d/' %
                                                   len(self.embeddings),
                                                   spec=self.network_spec)
+                    rospy.loginfo('Created embedding: %s', str(learner))
                     self.sess.run(learner.initializers)
-                self.embeddings[action] = learner
+                self.embeddings[action] = (len(self.embeddings), learner)
 
         if len(self.embeddings) == 0:
             rospy.loginfo('No embeddings, skipping')
@@ -125,7 +132,8 @@ class LaserEmbeddingLearner(object):
         valid_inds = []
         for i, item in enumerate(self.embeddings.iteritems()):
             k, l = item
-            i_ops = l.get_feed_validation(feed)
+            ind, net = l
+            i_ops = net.get_feed_validation(feed)
             if len(i_ops) > 0:
                 valid_inds.append(i)
             ops += i_ops
@@ -141,9 +149,11 @@ class LaserEmbeddingLearner(object):
 
         for i, item in enumerate(self.embeddings.iteritems()):
             k, l = item
+            ind, net = l
             validation = self.backend.validations[k]
             rospy.loginfo('Validation: action %d has (steps/terms) (%d/%d) and loss %s',
-                          i, validation.num_tuples, validation.num_terminals, str(losses[i]))
+                          ind, validation.num_tuples, validation.num_terminals, str(losses[i]))
+            self.error_plotter.add_line('val_%d' % ind, self.spin_iter, losses[i])
 
     def _spin_training(self):
         """Runs training
@@ -154,7 +164,8 @@ class LaserEmbeddingLearner(object):
             valid_inds = []
             for i, item in enumerate(self.embeddings.iteritems()):
                 k, l = item
-                i_ops = l.get_feed_training(feed, self.batch_size)
+                ind, net = l
+                i_ops = net.get_feed_training(feed, self.batch_size)
                 if len(i_ops) > 0:
                     valid_inds.append(i)
                 ops += i_ops
@@ -171,17 +182,16 @@ class LaserEmbeddingLearner(object):
 
         for i, item in enumerate(self.embeddings.iteritems()):
             k, l = item
+            ind, net = l
             dataset = self.backend.datasets[k]
             rospy.loginfo('Training: action %d has (steps/terms) (%d/%d) and loss %s',
-                          i, dataset.num_tuples, dataset.num_terminals, str(losses[i]))
-
+                          ind, dataset.num_tuples, dataset.num_terminals, str(losses[i]))
+            self.error_plotter.add_line('train_%d' % ind, self.spin_iter, losses[i])
 
 if __name__ == '__main__':
     rospy.init_node('laser_embedding_learner')
     lel = LaserEmbeddingLearner()
     try:
-        # TODO Make this cleaner...
-        plt.show()
-        rospy.spin()
+        lel.plot_group.spin(10.0)
     except rospy.ROSInterruptException:
         pass

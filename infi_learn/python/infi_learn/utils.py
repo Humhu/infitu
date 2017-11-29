@@ -4,7 +4,6 @@
 import math
 import numpy as np
 
-
 class LaserImagePainter(object):
     """Converts planar laser scans to fixed-size 2D byte images.
 
@@ -32,8 +31,9 @@ class LaserImagePainter(object):
         max_ys = self.max_range * self._sines
         self._offsets = (round(-min(max_xs) / self.res),
                          round(-min(max_ys) / self.res))
-        self.img_size = (int(math.ceil((max(max_xs) - min(max_xs)) / self.res)),
-                         int(math.ceil((max(max_ys) - min(max_ys)) / self.res)))
+        # NOTE In our convention, the origin is in the middle of a square pixel
+        self.img_size = (int(math.ceil((max(max_xs) - min(max_xs)) / self.res)) + 1,
+                         int(math.ceil((max(max_ys) - min(max_ys)) / self.res)) + 1)
         self.empty_val = empty_val
         self.fill_val = fill_val
         self.dtype = dtype

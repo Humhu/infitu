@@ -73,6 +73,12 @@ class EmbeddingLearner(object):
         self.initializers = [s.initializer for s in state] + \
             [adel.optimizer_initializer(opt, params)]
 
+    def __repr__(self):
+        s = 'Embedding network:'
+        for e in self.net:
+            s += '\n\t%s' % str(e)
+        return s
+
     def get_embed(self, imgs, vecs, feed):
         """Populates a feed dict and returns ops to perform an embedding
         using this model.
