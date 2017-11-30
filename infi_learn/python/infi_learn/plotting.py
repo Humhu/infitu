@@ -4,6 +4,7 @@ import time
 import abc
 import matplotlib.pyplot as plt
 import rospy
+import numpy as np
 
 class Plottable(object):
     """Interface for objects that need to be called from a main 
@@ -20,6 +21,7 @@ class Plottable(object):
         plottable callbacks on the GUI queue
         """
         pass
+
 
 class PlottingGroup(object):
     def __init__(self):
@@ -39,16 +41,15 @@ class PlottingGroup(object):
     def spin(self, rate):
         while not rospy.is_shutdown():
             self.draw_all()
-            time.sleep(1.0/rate)
+            time.sleep(1.0 / rate)
         plt.close('all')
 
-class ContinuousPlotter(Plottable):
+
+class LineSeriesPlotter(Plottable):
     def __init__(self):
         self.fig = plt.figure()
         self.ax = plt.axes()
         self.objects = {}
-
-    # TODO Figure out how to do legend properly
 
     def _focus(self):
         plt.figure(self.fig.number)
@@ -57,17 +58,50 @@ class ContinuousPlotter(Plottable):
         self._focus()
         plt.draw()
 
+    def _check_in(self, x):
+        if np.iterable(x):
+            return list(x)
+        else:
+            return [x]
+
     def add_line(self, name, x, y, **kwargs):
-        self._focus()        
+        self._focus()
+        x = list( np.atleast_1d(x) )
+        y = list( np.atleast_1d(y) )
+        
         if name not in self.objects:
-            self.objects[name] = (plt.plot(x, y, label=name, **kwargs)[0],
-                                  [x], 
-                                  [y])
-            plt.legend()
+            self._create_line(name, x, y, **kwargs)
         else:
             lh, xs, ys = self.objects[name]
-            xs.append(x)
-            ys.append(y)
+            xs.extend(x)
+            ys.extend(y)
             lh.set_data(xs, ys)
-        self.ax.relim()
-        self.ax.autoscale_view(True, True, True)
+            self.ax.relim()
+            self.ax.autoscale_view(True, True, True)
+
+    def set_line(self, name, x, y, **kwargs):
+        self._focus()
+        x = list( np.atleast_1d(x) )
+        y = list( np.atleast_1d(y) )
+
+        if name not in self.objects:
+            self._create_line(name, x, y, **kwargs)
+        else:
+            lh = self.objects[name][0]
+            self.objects[name] = (lh, x, y)
+            lh.set_data(x, y)
+            self.ax.relim()
+            self.ax.autoscale_view(True, True, True)
+
+    def _create_line(self, name, x, y, **kwargs):
+        self.objects[name] = (plt.plot(x, y, label=name, **kwargs)[0],
+                               x, y)
+        plt.legend()
+
+    def clear_line(self, name):
+        if name in self.objects:
+            self.objects[name][0].remove()
+            self.objects.pop(name)
+            plt.legend()
+            self.ax.relim()
+            self.ax.autoscale_view(True, True, True)

@@ -5,7 +5,7 @@ import infi_learn as rr
 import rospy
 import tensorflow as tf
 import itertools
-
+import numpy as np
 import matplotlib.pyplot as plt
 
 # TODO Generalize to use different frontends?
@@ -68,10 +68,12 @@ class LaserEmbeddingLearner(object):
         self.embeddings = {}
         self.sess = tf.Session()
 
-        self.error_plotter = rr.ContinuousPlotter()
-        
+        self.error_plotter = rr.LineSeriesPlotter()
+        self.embed_plotter = rr.LineSeriesPlotter()
+
         self.plot_group = rr.PlottingGroup()
         self.plot_group.add_plottable(self.error_plotter)
+        self.plot_group.add_plottable(self.embed_plotter)
         self.plot_group.add_plottable(self.laser_source)
 
     def init_feed(self, training):
@@ -153,7 +155,19 @@ class LaserEmbeddingLearner(object):
             validation = self.backend.validations[k]
             rospy.loginfo('Validation: action %d has (steps/terms) (%d/%d) and loss %s',
                           ind, validation.num_tuples, validation.num_terminals, str(losses[i]))
-            self.error_plotter.add_line('val_%d' % ind, self.spin_iter, losses[i])
+
+            self.error_plotter.add_line(
+                'val_%d' % ind, self.spin_iter, losses[i])
+
+            feed = self.init_feed(training=False)
+            op, labels = net.get_embed_validation(feed)
+            embed = self.sess.run(op, feed_dict=feed)
+            pos_embeds = embed[labels]
+            neg_embeds = embed[np.logical_not(labels)]
+            self.embed_plotter.set_line('val+_%d' % ind, pos_embeds[:, 0], pos_embeds[:, 1],
+                                        marker='o', linestyle='none')
+            self.embed_plotter.set_line('val-_%d' % ind, neg_embeds[:, 0], neg_embeds[:, 1],
+                                        marker='x', linestyle='none')
 
     def _spin_training(self):
         """Runs training
@@ -186,7 +200,10 @@ class LaserEmbeddingLearner(object):
             dataset = self.backend.datasets[k]
             rospy.loginfo('Training: action %d has (steps/terms) (%d/%d) and loss %s',
                           ind, dataset.num_tuples, dataset.num_terminals, str(losses[i]))
-            self.error_plotter.add_line('train_%d' % ind, self.spin_iter, losses[i])
+            print losses[i]
+            self.error_plotter.add_line(
+                'train_%d' % ind, self.spin_iter, losses[i])
+
 
 if __name__ == '__main__':
     rospy.init_node('laser_embedding_learner')

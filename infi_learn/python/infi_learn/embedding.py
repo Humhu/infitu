@@ -5,6 +5,7 @@ import tensorflow as tf
 import adel
 import itertools
 import utils as rru
+import numpy as np
 
 
 class EmbeddingLearner(object):
@@ -79,7 +80,7 @@ class EmbeddingLearner(object):
             s += '\n\t%s' % str(e)
         return s
 
-    def get_embed(self, imgs, vecs, feed):
+    def embed(self, imgs, vecs, feed):
         """Populates a feed dict and returns ops to perform an embedding
         using this model.
 
@@ -95,7 +96,33 @@ class EmbeddingLearner(object):
         feed[self.image_ph] = rru.shape_data_2d(imgs)
         feed[self.belief_ph] = rru.shape_data_vec(vecs)
 
-        return [self.net]
+        return [self.net[-1]]
+
+    def get_embed_validation(self, feed):
+        """Generates embeddings for the validation dataset
+
+        Parameters
+        ----------
+        feed : dict
+            Tensorflow feed dict to add fields to
+
+        Returns
+        -------
+        ops : tensorflow operation
+            Operation to run to get embeddings
+        labels : list of bools
+            True if positive class, false if negative, corresponding to op outputs
+        """
+        if self.validation is None or self.validation.num_tuples == 0 \
+            or self.validation.num_terminals == 0:
+            return []
+        sb, si = zip(*self.validation.all_states)
+        stb, sti = zip(*self.validation.all_terminal_states)
+        feed[self.belief_ph] = rru.shape_data_vec(sb + stb)
+        feed[self.image_ph] = rru.shape_data_2d(si + sti)
+
+        labels = [True] * self.validation.num_tuples + [False] * self.validation.num_terminals
+        return self.net[-1], np.array(labels)
 
     def get_feed_training(self, feed, k):
         """Sample the dataset and add fields to a tensorflow feed dict.
@@ -118,7 +145,8 @@ class EmbeddingLearner(object):
         s = self.dataset.sample_sars(k)[0]
         st = self.dataset.sample_terminals(k)[0]
         self._fill_feed(s, st, feed)
-        return [self.loss, self.train]
+        out = [self.loss, self.train]
+        return out
 
     def get_feed_validation(self, feed):
         """Ports the validation dataset to a tensorflow feed dict.
@@ -139,7 +167,8 @@ class EmbeddingLearner(object):
         s = self.validation.all_states
         st = self.validation.all_terminal_states
         self._fill_feed(s, st, feed)
-        return [self.loss]
+        out = [self.loss]
+        return out
 
     def _fill_feed(self, s, st, feed):
         """Helper to create class permutations and populate
