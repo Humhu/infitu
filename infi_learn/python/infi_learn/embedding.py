@@ -7,15 +7,15 @@ import itertools
 import utils as rru
 import numpy as np
 
-
+# TODO How would we generalize the input architecture?
 class EmbeddingLearner(object):
     """Wraps an embedding network and learning optimization. Provides methods for
     using the embedding and sampling the dataset for aggregate learning.
 
     Parameters
     ----------
-    dataset : adel.EpisodicSARSDataset
-        The dataset for this learner
+    dataset : adel.SARSDataset
+        Training dataset object
     img_size : 2-tuple or list of int
         Painted laser image width and height
     vec_size : int
@@ -26,14 +26,16 @@ class EmbeddingLearner(object):
         adel.conv2d_joint_net network specification dict
     sep_dist : float
         Desired squared min embedding separation distance between disparate classes
-    validation : adel.EpisodicSARSDataset (optional, default None)
+    validation : adel.SARSDataset (optional, default None)
         Another dataset to use for validation
     """
 
-    def __init__(self, dataset, img_size, vec_size, scope, spec, sep_dist,
-                 validation=None):
-        self.dataset = dataset
-        self.validation = validation
+    def __init__(self, train_data, img_size, vec_size, scope, spec, sep_dist,
+                 val_data=None):
+        self.train_dataset = train_data
+        # TODO Not sure how we would change the sampling mode if we wanted to
+        self.training_sampler = adel.SamplingInterface(self.train_dataset)
+        self.val_dataset = val_data
         self.image_ph = tf.placeholder(tf.float32,
                                        shape=[None, img_size[0],
                                               img_size[1], 1],
@@ -113,15 +115,16 @@ class EmbeddingLearner(object):
         labels : list of bools
             True if positive class, false if negative, corresponding to op outputs
         """
-        if self.validation is None or self.validation.num_tuples == 0 \
-            or self.validation.num_terminals == 0:
+        if self.val_dataset is None or self.val_dataset.num_tuples == 0 \
+            or self.val_dataset.num_terminals == 0:
             return []
-        sb, si = zip(*self.validation.all_states)
-        stb, sti = zip(*self.validation.all_terminal_states)
+        sb, si = zip(*self.val_dataset.all_states)
+        stb, sti = zip(*self.val_dataset.all_terminal_states)
         feed[self.belief_ph] = rru.shape_data_vec(sb + stb)
         feed[self.image_ph] = rru.shape_data_2d(si + sti)
 
-        labels = [True] * self.validation.num_tuples + [False] * self.validation.num_terminals
+        labels = [True] * self.val_dataset.num_tuples \
+        + [False] * self.val_dataset.num_terminals
         return self.net[-1], np.array(labels)
 
     def get_feed_training(self, feed, k):
@@ -140,10 +143,10 @@ class EmbeddingLearner(object):
         ops : list of tensorflow operations
             List of the loss and training operation
         """
-        if self.dataset.num_tuples < k or self.dataset.num_terminals < k:
+        if self.train_dataset.num_tuples < k or self.train_dataset.num_terminals < k:
             return []
-        s = self.dataset.sample_sars(k)[0]
-        st = self.dataset.sample_terminals(k)[0]
+        s = self.train_dataset.sample_sars(k)[0]
+        st = self.train_dataset.sample_terminals(k)[0]
         self._fill_feed(s, st, feed)
         out = [self.loss, self.train]
         return out
@@ -161,11 +164,11 @@ class EmbeddingLearner(object):
         ops : list of tensorflow operations
             List of the loss
         """
-        if self.validation is None or self.validation.num_tuples == 0 \
-            or self.validation.num_terminals == 0:
+        if self.val_dataset is None or self.val_dataset.num_tuples == 0 \
+            or self.val_dataset.num_terminals == 0:
             return []
-        s = self.validation.all_states
-        st = self.validation.all_terminal_states
+        s = self.val_dataset.all_states
+        st = self.val_dataset.all_terminal_states
         self._fill_feed(s, st, feed)
         out = [self.loss]
         return out

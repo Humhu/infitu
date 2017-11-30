@@ -25,7 +25,7 @@ class SynchronizationFrontend(object):
         """
         sars, terms = self.spin_impl(current_time)
         print '%d sars, %d terms' % (len(sars), len(terms))
-        self._backend.report_sars_tuples(sars)
+        self._backend.report_sars(sars)
         self._backend.report_terminals(terms)
 
     @abc.abstractmethod
@@ -38,32 +38,3 @@ class SynchronizationFrontend(object):
         terms : list of SA tuples
         """
         pass
-
-class MemoryBackend(object):
-    """Interface for classes that store and retrieve learning data.
-    """
-
-    __metaclass__ = abc.ABCMeta
-
-    def __init__(self):
-        pass
-
-    @abc.abstractmethod
-    def report_sars_tuples(self, sars):
-        """Reports SARS tuples from a front end.
-
-        Parameters
-        ----------
-        sars : iterable of 4-tuples
-            The tuples to be added to memory
-        """
-
-    @abc.abstractmethod
-    def report_terminals(self, sa):
-        """Reports terminal SA tuples from a front end.
-
-        Parameters
-        ----------
-        sa : iterable of 2-tuples
-            The tuples to be added to memory
-        """

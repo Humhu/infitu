@@ -2,15 +2,15 @@
 """
 import adel
 import rospy
-from interfaces import MemoryBackend
 
 
-class MonolithicBackend(MemoryBackend):
+class MonolithicBackend(object):
     """Stores all data in a single monolithic SARS dataset.
     """
 
     def __init__(self):
-        self.dataset = adel.EpisodicSARSDataset()
+        self.training = adel.SARSDataset()
+        self.validation = adel.SARSDataset()
 
         self.save_path = rospy.get_param('~backend/save_path', None)
         if self.save_path is not None:
@@ -20,36 +20,67 @@ class MonolithicBackend(MemoryBackend):
 
     def __del__(self):
         if self.save_path is not None:
-            self.dataset.save(self.save_path)
+            self.training.save(self.save_path)
 
-    def report_sars_tuples(self, sars):
+    def report_sars(self, sars):
         for item in sars:
-            self.dataset.report_sars(*item)
+            self.training.report_sars(*item)
 
     def report_terminals(self, sa):
         for item in sa:
-            self.dataset.report_terminal(*item)
+            self.training.report_terminal(*item)
 
 # TODO Figure out how to save all the splits
-class ActionSplitBackend(MemoryBackend):
+
+
+class ActionSplitBackend(object):
     """Splits data into separate datasets for each action seen.
     """
 
     def __init__(self):
         self.datasets = {}
-        self.validations = {}
 
-        self.online_val = rospy.get_param('~backend/online_validation_rate', 0.0)
+        self.training_mode = rospy.get_param('~backend/training_sample_mode',
+                                             'uniform')
+
+        holdout_rate = rospy.get_param('~backend/holdout_rate', 0.0)
+        holdout_mode = rospy.get_param('~backend/holdout_mode', 'uniform')
+        if holdout_mode == 'uniform':
+            self.make_sampler = lambda: adel.UniformSampler(rate=holdout_rate)
+        elif holdout_mode == 'contiguous':
+            slen = rospy.get_param('~backend/holdout_segment_length')
+            self.make_sampler = lambda: adel.ContiguousSampler(rate=holdout_rate,
+                                                               segment_len=slen)
+        else:
+            raise ValueError('Unrecognized holdout mode: %s' % holdout_mode)
 
     def create_split(self, a):
         if a in self.datasets:
             raise ValueError('Action %s already exists' % str(a))
-        self.datasets[a] = adel.EpisodicSARSDataset()
-        self.validations[a] = adel.EpisodicSARSDataset()
-        self.datasets[a].link_validation(self.validations[a])
-        self.datasets[a].set_online_validation(self.online_val)
+        
+        # NOTE This simplifies the number of references we need to keep
+        self.datasets[a] = adel.ValidationHoldout(training=adel.SARSDataset(),
+                                                  holdout=adel.SARSDataset(),
+                                                  sampler=self.make_sampler())
 
-    def report_sars_tuples(self, sars):
+    def get_splits(self):
+        return list(self.datasets.iterkeys())
+
+    def get_training(self, a):
+        """Returns the corresponding training data
+        """
+        if a not in self.datasets:
+            raise ValueError('No split %s' % str(a))
+        return self.datasets[a].training
+
+    def get_validation(self, a):
+        """Returns the corresponding validation data
+        """
+        if a not in self.datasets:
+            raise ValueError('No split %s' % str(a))
+        return self.datasets[a].holdout
+
+    def report_sars(self, sars):
         for s, a, r, sn in sars:
             if a not in self.datasets:
                 self.create_split(a)

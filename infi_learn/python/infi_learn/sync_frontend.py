@@ -45,16 +45,6 @@ class DataSourceFrontend(SynchronizationFrontend):
             self.sync.buffer_episode_terminate(msg.time.to_sec())
 
     def spin_impl(self, current_time):
-        # while len(self.image_buffer) > 0:
-        #     head = self.image_buffer[0].header.stamp.to_sec()
-        #     if head > current_time - self.lag:
-        #         break
-        #     img = self.image_buffer.popleft()
-
-        #     bt, beliefs = self.belief_buffer.get_closest_either(head)
-        #     if head - bt > self.belief_dt_tol:
-        #         continue
-
         # 1. Process data source
         head = current_time - self.lag
         for t, data in self.source.get_data(until=head):

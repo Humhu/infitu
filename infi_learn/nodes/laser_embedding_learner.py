@@ -19,6 +19,7 @@ class LaserEmbeddingLearner(object):
     def __init__(self):
         self.backend = rr.ActionSplitBackend()
 
+        # Frontend initialization
         belief_dim = rospy.get_param('~frontend/belief_dim')
         self.action_dim = rospy.get_param('~frontend/action_dim')
         laser_dim = rospy.get_param('~frontend/laser_dim')
@@ -68,6 +69,8 @@ class LaserEmbeddingLearner(object):
         self.embeddings = {}
         self.sess = tf.Session()
 
+        # Plotting and visualization
+        # TODO One plotter per embedding
         self.error_plotter = rr.LineSeriesPlotter()
         self.embed_plotter = rr.LineSeriesPlotter()
 
@@ -99,22 +102,24 @@ class LaserEmbeddingLearner(object):
 
     def spin(self, event):
         self.frontend.spin(event.current_real.to_sec())
-        for action, dataset in self.backend.datasets.iteritems():
-            if action not in self.embeddings:
-                rospy.loginfo(
-                    'Creating new learner for action: %s' % str(action))
-                with self.sess.graph.as_default():
-                    learner = rr.EmbeddingLearner(dataset=dataset,
-                                                  validation=self.backend.validations[action],
-                                                  img_size=self.laser_source.painter.img_size,
-                                                  vec_size=self.belief_source.dim,
-                                                  sep_dist=self.sep_dist,
-                                                  scope='embed_%d/' %
-                                                  len(self.embeddings),
-                                                  spec=self.network_spec)
-                    rospy.loginfo('Created embedding: %s', str(learner))
-                    self.sess.run(learner.initializers)
-                self.embeddings[action] = (len(self.embeddings), learner)
+
+        # See if we have any new actions to initialize embeddings for
+        for a in self.backend.get_splits():
+            if a in self.embeddings:
+                continue
+
+            rospy.loginfo('Creating new learner for action: %s' % str(a))
+            with self.sess.graph.as_default():
+                learner = rr.EmbeddingLearner(train_data=self.backend.get_training(a),
+                                              validation=self.backend.get_validation[a],
+                                              img_size=self.laser_source.painter.img_size,
+                                              vec_size=self.belief_source.dim,
+                                              sep_dist=self.sep_dist,
+                                              scope='embed_%d/' % len(self.embeddings),
+                                              spec=self.network_spec)
+                rospy.loginfo('Created embedding: %s', str(learner))
+                self.sess.run(learner.initializers)
+            self.embeddings[a] = (len(self.embeddings), learner)
 
         if len(self.embeddings) == 0:
             rospy.loginfo('No embeddings, skipping')
