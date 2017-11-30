@@ -22,9 +22,6 @@ class EpisodeTerminator(object):
         self.min_reward = rospy.get_param('~min_reward')
 
         self.break_pub = rospy.Publisher('~breaks', EpisodeBreak, queue_size=1)
-        self.reward_sub = rospy.Subscriber('reward', RewardStamped,
-                                           queue_size=1,
-                                           callback=self.reward_callback)
         
         self.start_delay = float(rospy.get_param('~start_delay', 0.0))
         self.min_episode_len = float(rospy.get_param('~min_ep_len', 0.0))
@@ -32,6 +29,11 @@ class EpisodeTerminator(object):
         self.break_detected = False
         self.break_reward = 0
         self.break_time = rospy.Time()
+
+        self.reward_sub = rospy.Subscriber('reward', RewardStamped,
+                                           queue_size=1,
+                                           callback=self.reward_callback)
+
 
     def reward_callback(self, msg):
         # If episode hasn't started yet, come back later
