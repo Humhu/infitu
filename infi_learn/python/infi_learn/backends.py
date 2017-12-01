@@ -40,9 +40,6 @@ class ActionSplitBackend(object):
     def __init__(self):
         self.datasets = {}
 
-        self.training_mode = rospy.get_param('~backend/training_sample_mode',
-                                             'uniform')
-
         holdout_rate = rospy.get_param('~backend/holdout_rate', 0.0)
         holdout_mode = rospy.get_param('~backend/holdout_mode', 'uniform')
         if holdout_mode == 'uniform':

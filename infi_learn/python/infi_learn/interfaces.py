@@ -11,8 +11,6 @@ class SynchronizationFrontend(object):
     __metaclass__ = abc.ABCMeta
 
     def __init__(self, backend):
-        if not isinstance(backend, MemoryBackend):
-            raise ValueError('backend must be implement the MemoryBackend interface')
         self._backend = backend
 
     def spin(self, current_time):

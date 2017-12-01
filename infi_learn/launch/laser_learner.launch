@@ -55,7 +55,9 @@
 
         backend:
             save_path: /home/humphreh/Software/argus_ws/lo_test.pkl
-            online_validation_rate: 0.05
+            holdout_rate: 0.05
+            holdout_mode: contiguous
+            holdout_segment_length: 30
 
         spin_rate: 1.0
 

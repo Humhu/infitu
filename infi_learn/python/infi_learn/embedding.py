@@ -145,8 +145,8 @@ class EmbeddingLearner(object):
         """
         if self.train_dataset.num_tuples < k or self.train_dataset.num_terminals < k:
             return []
-        s = self.train_dataset.sample_sars(k)[0]
-        st = self.train_dataset.sample_terminals(k)[0]
+        s = self.training_sampler.sample_sars(k)[0]
+        st = self.training_sampler.sample_terminals(k)[0]
         self._fill_feed(s, st, feed)
         out = [self.loss, self.train]
         return out

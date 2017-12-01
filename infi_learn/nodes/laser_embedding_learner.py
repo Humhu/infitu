@@ -111,7 +111,7 @@ class LaserEmbeddingLearner(object):
             rospy.loginfo('Creating new learner for action: %s' % str(a))
             with self.sess.graph.as_default():
                 learner = rr.EmbeddingLearner(train_data=self.backend.get_training(a),
-                                              validation=self.backend.get_validation[a],
+                                              val_data=self.backend.get_validation(a),
                                               img_size=self.laser_source.painter.img_size,
                                               vec_size=self.belief_source.dim,
                                               sep_dist=self.sep_dist,
@@ -138,7 +138,7 @@ class LaserEmbeddingLearner(object):
         ops = []
         valid_inds = []
         for i, item in enumerate(self.embeddings.iteritems()):
-            k, l = item
+            a, l = item
             ind, net = l
             i_ops = net.get_feed_validation(feed)
             if len(i_ops) > 0:
@@ -155,9 +155,9 @@ class LaserEmbeddingLearner(object):
             losses[vi] = res[i]
 
         for i, item in enumerate(self.embeddings.iteritems()):
-            k, l = item
+            a, l = item
             ind, net = l
-            validation = self.backend.validations[k]
+            validation = self.backend.get_validation(a)
             rospy.loginfo('Validation: action %d has (steps/terms) (%d/%d) and loss %s',
                           ind, validation.num_tuples, validation.num_terminals, str(losses[i]))
 
@@ -182,7 +182,7 @@ class LaserEmbeddingLearner(object):
             ops = []
             valid_inds = []
             for i, item in enumerate(self.embeddings.iteritems()):
-                k, l = item
+                a, l = item
                 ind, net = l
                 i_ops = net.get_feed_training(feed, self.batch_size)
                 if len(i_ops) > 0:
@@ -200,12 +200,11 @@ class LaserEmbeddingLearner(object):
                 losses[vi] = res_losses[i]
 
         for i, item in enumerate(self.embeddings.iteritems()):
-            k, l = item
+            a, l = item
             ind, net = l
-            dataset = self.backend.datasets[k]
+            dataset = self.backend.get_training(a)
             rospy.loginfo('Training: action %d has (steps/terms) (%d/%d) and loss %s',
                           ind, dataset.num_tuples, dataset.num_terminals, str(losses[i]))
-            print losses[i]
             self.error_plotter.add_line(
                 'train_%d' % ind, self.spin_iter, losses[i])
 
