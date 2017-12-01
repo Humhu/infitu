@@ -46,9 +46,12 @@ class PlottingGroup(object):
 
 
 class LineSeriesPlotter(Plottable):
-    def __init__(self):
+    def __init__(self, xlabel='', ylabel='', title=''):
         self.fig = plt.figure()
         self.ax = plt.axes()
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
         self.objects = {}
 
     def _focus(self):

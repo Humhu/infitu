@@ -44,12 +44,14 @@ class LaserEmbeddingLearner(object):
         self.iters_per_spin = rospy.get_param('~learning/iters_per_spin')
 
         spin_rate = rospy.get_param('~spin_rate')
-        self.spin_timer = rospy.Timer(rospy.Duration(1.0 / spin_rate),
-                                      callback=self.spin)
+        spin_dt = 1.0 / spin_rate
+        self.spin_timer = rospy.Timer(
+            rospy.Duration(spin_dt), callback=self.spin)
         self.spin_iter = 0
 
         self.validation_period = rospy.get_param(
             '~learning/validation_period', 0)
+        self.dummy_loss = tf.constant('n/a')
 
         self.network_spec = rospy.get_param('~network')
         self.batch_training = None
@@ -71,8 +73,12 @@ class LaserEmbeddingLearner(object):
 
         # Plotting and visualization
         # TODO One plotter per embedding
-        self.error_plotter = rr.LineSeriesPlotter()
-        self.embed_plotter = rr.LineSeriesPlotter()
+        self.error_plotter = rr.LineSeriesPlotter(title='Embedding losses over time',
+                                                  xlabel='Spin iter (%f s/spin)' % spin_dt,
+                                                  ylabel='Embedding loss')
+        self.embed_plotter = rr.LineSeriesPlotter(title='Validation embeddings',
+                                                  xlabel='Embedding dimension 1',
+                                                  ylabel='Embedding dimension 2')
 
         self.plot_group = rr.PlottingGroup()
         self.plot_group.add_plottable(self.error_plotter)
@@ -110,16 +116,19 @@ class LaserEmbeddingLearner(object):
 
             rospy.loginfo('Creating new learner for action: %s' % str(a))
             with self.sess.graph.as_default():
-                learner = rr.EmbeddingLearner(train_data=self.backend.get_training(a),
-                                              val_data=self.backend.get_validation(a),
-                                              img_size=self.laser_source.painter.img_size,
-                                              vec_size=self.belief_source.dim,
-                                              sep_dist=self.sep_dist,
-                                              scope='embed_%d/' % len(self.embeddings),
-                                              spec=self.network_spec)
+                model = rr.EmbeddingModel(img_size=self.laser_source.painter.img_size,
+                                          vec_size=self.belief_source.dim,
+                                          scope='embed_%d/' % len(
+                                              self.embeddings),
+                                          spec=self.network_spec)
+                learner = rr.EmbeddingLearner(model=model,
+                                              train_data=self.backend.get_training(
+                                                  a),
+                                              sep_dist=self.sep_dist)
                 rospy.loginfo('Created embedding: %s', str(learner))
                 self.sess.run(learner.initializers)
-            self.embeddings[a] = (len(self.embeddings), learner)
+            # Store model index, model, and learner
+            self.embeddings[a] = (len(self.embeddings), model, learner)
 
         if len(self.embeddings) == 0:
             rospy.loginfo('No embeddings, skipping')
@@ -136,72 +145,62 @@ class LaserEmbeddingLearner(object):
         """
         feed = self.init_feed(training=False)
         ops = []
-        valid_inds = []
+        labels = []
         for i, item in enumerate(self.embeddings.iteritems()):
             a, l = item
-            ind, net = l
-            i_ops = net.get_feed_validation(feed)
-            if len(i_ops) > 0:
-                valid_inds.append(i)
-            ops += i_ops
+            ind, model, learner = l
+            val = self.backend.get_validation(a)
+            # NOTE We're doing double work to compute the loss and the embedding
+            # separately here, but it keeps the interfaces simpler
+            loss_ops = learner.get_feed_dataset(feed=feed, dataset=val)
+            emb_ops, labs = rr.get_embed_validation(feed=feed,
+                                                    model=model,
+                                                    dataset=val)
+            if len(loss_ops) == 0:
+                loss_ops = [self.dummy_loss]
+            ops += loss_ops + emb_ops
+            labels.append(labs)
 
-        if len(ops) == 0:
-            rospy.loginfo('No learners ready, skipping validation')
-            return
-
-        losses = [None] * len(self.embeddings)
         res = self.sess.run(ops, feed_dict=feed)
-        for i, vi in enumerate(valid_inds):
-            losses[vi] = res[i]
+        losses = res[0::2]
+        embeds = res[1::2]
 
         for i, item in enumerate(self.embeddings.iteritems()):
             a, l = item
-            ind, net = l
-            validation = self.backend.get_validation(a)
+            ind, model, learner = l
+            val = self.backend.get_validation(a)
             rospy.loginfo('Validation: action %d has (steps/terms) (%d/%d) and loss %s',
-                          ind, validation.num_tuples, validation.num_terminals, str(losses[i]))
+                          ind, val.num_tuples, val.num_terminals, str(losses[i]))
 
-            self.error_plotter.add_line(
-                'val_%d' % ind, self.spin_iter, losses[i])
+            self.error_plotter.add_line('val_%d' % ind, self.spin_iter, losses[i])
 
-            feed = self.init_feed(training=False)
-            op, labels = net.get_embed_validation(feed)
-            embed = self.sess.run(op, feed_dict=feed)
-            pos_embeds = embed[labels]
-            neg_embeds = embed[np.logical_not(labels)]
+            pos_embeds = embeds[i][labels[i]]
+            neg_embeds = embeds[i][np.logical_not(labels[i])]
             self.embed_plotter.set_line('val+_%d' % ind, pos_embeds[:, 0], pos_embeds[:, 1],
                                         marker='o', linestyle='none')
             self.embed_plotter.set_line('val-_%d' % ind, neg_embeds[:, 0], neg_embeds[:, 1],
                                         marker='x', linestyle='none')
 
     def _spin_training(self):
-        """Runs training
+        """Runs training and prints stats out after iterations
         """
         for _ in range(self.iters_per_spin):
             feed = self.init_feed(training=True)
             ops = []
-            valid_inds = []
             for i, item in enumerate(self.embeddings.iteritems()):
                 a, l = item
-                ind, net = l
-                i_ops = net.get_feed_training(feed, self.batch_size)
-                if len(i_ops) > 0:
-                    valid_inds.append(i)
+                ind, model, learner = l
+                i_ops = learner.get_feed_training(feed=feed, k=self.batch_size)
+                if len(i_ops) == 0:
+                    i_ops = [self.dummy_loss, self.dummy_loss]
                 ops += i_ops
 
-            if len(ops) == 0:
-                rospy.loginfo('No learners ready, skipping training')
-                return
-
-            losses = [None] * len(self.embeddings)
             res = self.sess.run(ops, feed_dict=feed)
-            res_losses = res[0::2]
-            for i, vi in enumerate(valid_inds):
-                losses[vi] = res_losses[i]
 
+        losses = res[::2]
         for i, item in enumerate(self.embeddings.iteritems()):
             a, l = item
-            ind, net = l
+            ind, model, learner = l
             dataset = self.backend.get_training(a)
             rospy.loginfo('Training: action %d has (steps/terms) (%d/%d) and loss %s',
                           ind, dataset.num_tuples, dataset.num_terminals, str(losses[i]))
