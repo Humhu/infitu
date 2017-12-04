@@ -113,12 +113,6 @@ class EmbeddingModel(object):
 
         return [self.net[-1]]
 
-    def query(self, x):
-        """Returns the predicted mean and variance at embedding space x
-        """
-        # TODO Nearest-neighbor model?
-        pass
-
 # TODO How would we generalize the input architecture?
 
 
@@ -156,10 +150,16 @@ class EmbeddingLearner(object):
                                     reuse=True)[0]
         self.state = state
 
+        # Loss function penalty for different classes being near each other
         delta = self.p_net[-1] - self.n_net[-1]
         delta_sq = tf.reduce_sum(delta * delta, axis=-1)
-        self.loss = tf.losses.huber_loss(labels=-delta_sq + sep_dist,
-                                         predictions=[0])
+        
+        # Squared exponential with sep_dist as bandwidth
+        self.loss = tf.reduce_mean(-tf.exp(delta_sq / sep_dist))
+        
+        # Huber with sep_dist as horizontal offset
+        #self.loss = tf.losses.huber_loss(labels=-delta_sq + sep_dist,
+        #                                 predictions=[0])
 
         opt = tf.train.AdamOptimizer(learning_rate=1e-3)
         with tf.control_dependencies(ups):
