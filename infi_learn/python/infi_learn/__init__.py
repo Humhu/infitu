@@ -5,3 +5,5 @@ from sync_frontend import *
 from embedding import *
 from utils import *
 from plotting import *
+from class_estimator import *
+from learners import *

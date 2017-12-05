@@ -2,7 +2,7 @@
 """
 import adel
 import rospy
-
+import dill
 
 class MonolithicBackend(object):
     """Stores all data in a single monolithic SARS dataset.
@@ -20,7 +20,7 @@ class MonolithicBackend(object):
 
     def __del__(self):
         if self.save_path is not None:
-            self.training.save(self.save_path)
+            dill.dump(self, open(self.save_path, 'w'))
 
     def report_sars(self, sars):
         for item in sars:
@@ -50,6 +50,16 @@ class ActionSplitBackend(object):
                                                                segment_len=slen)
         else:
             raise ValueError('Unrecognized holdout mode: %s' % holdout_mode)
+
+        self.save_path = rospy.get_param('~backend/save_path', None)
+        if self.save_path is not None:
+            # Make sure file path is ok
+            save_file = open(self.save_path, 'w')
+            save_file.close()
+
+    def __del__(self):
+        if self.save_path is not None:
+            dill.dump(self, open(self.save_path, 'w'))
 
     def create_split(self, a):
         if a in self.datasets:
