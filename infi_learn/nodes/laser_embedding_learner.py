@@ -49,13 +49,13 @@ class LaserEmbeddingLearner(rr.BaseEmbeddingLearner):
     """
 
     def __init__(self):
-        super(LaserEmbeddingLearner, self).__init__()
+        super(LaserEmbeddingLearner, self).__init__(LaserEmbeddingFrontend)
 
     def create_model(self, scope):
         return rr.EmbeddingModel(img_size=self.frontend.img_size,
                                  vec_size=self.frontend.belief_size,
                                  scope=scope,
-                                 spec=self.network_spec)
+                                 spec=self.trainer.network_args)
 
 
 if __name__ == '__main__':

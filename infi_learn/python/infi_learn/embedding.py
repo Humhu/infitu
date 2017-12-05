@@ -27,10 +27,17 @@ def get_embed_validation(model, dataset, feed):
     labels : list of bools
         True if positive class, false if negative, corresponding to op outputs
     """
-    if dataset.num_tuples == 0 or dataset.num_terminals == 0:
-        return []
-    sb, si = zip(*dataset.all_states)
-    stb, sti = zip(*dataset.all_terminal_states)
+    if dataset.num_tuples == 0:
+        sb = ()
+        si = ()
+    else:
+        sb, si = zip(*dataset.all_states)
+        
+    if dataset.num_terminals == 0:
+        stb = ()
+        sti = ()
+    else:
+        stb, sti = zip(*dataset.all_terminal_states)
 
     ops = model.embed(imgs=si + sti, vecs=sb + stb, feed=feed)
     labels = [True] * dataset.num_tuples + [False] * dataset.num_terminals
@@ -116,7 +123,7 @@ class EmbeddingModel(object):
 # TODO How would we generalize the input architecture?
 
 
-class EmbeddingLearner(object):
+class EmbeddingTask(object):
     """Wraps an embedding network and learning optimization. Provides methods for
     using the embedding and sampling the dataset for aggregate learning.
 
@@ -212,6 +219,8 @@ class EmbeddingLearner(object):
             optionally step the learner
         """
         if k == -1:
+            if dataset.num_tuples == 0 or dataset.num_terminals == 0:
+                return []
             s = self.train_dataset.all_states
             st = self.train_dataset.all_terminal_states
         else:

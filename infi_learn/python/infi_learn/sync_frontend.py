@@ -10,7 +10,6 @@ from broadcast.msg import FloatVectorStamped
 from interfaces import SynchronizationFrontend
 
 
-
 class DataSourceFrontend(SynchronizationFrontend):
     """Frontend that synchronizes an data source with a
     reward signal, action broadcast topic, and episode break topic.
@@ -51,6 +50,10 @@ class DataSourceFrontend(SynchronizationFrontend):
             self.sync.buffer_state(t=t, s=data)
 
         # 2. Spin synchronizer
+        rospy.loginfo('Sync buffer: %d states, %d actions, %d rewards',
+                      self.sync.num_states_buffered,
+                      self.sync.num_actions_buffered,
+                      self.sync.num_rewards_buffered)
         sars, terms = self.sync.process(now=head)
         return sars, terms
 
