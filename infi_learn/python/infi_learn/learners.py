@@ -120,12 +120,11 @@ class BaseEmbeddingLearner(object):
 
             rospy.loginfo('Creating new learner for action: %s' % str(a))
             with self.sess.graph.as_default():
-                model = self.create_model(
-                    scope='embed_%d/' % len(self.embeddings))
+                model = self.create_model(scope='embed_%d/' % len(self.embeddings))
                 learner = rr.EmbeddingTask(model=model,
                                            train_data=self.backend.get_training(a),
                                            sep_dist=self.sep_dist)
-                rospy.loginfo('Created embedding: %s', str(learner))
+                rospy.loginfo('Created embedding: %s', str(model))
 
                 self.sess.run(learner.initializers)
             # Store model index, model, and learner
@@ -173,8 +172,8 @@ class BaseEmbeddingLearner(object):
             rospy.loginfo('Validation: action %d has (steps/terms) (%d/%d) and loss %s',
                           ind, val.num_tuples, val.num_terminals, str(losses[i]))
 
-            self.error_plotter.add_line(
-                'val_%d' % ind, self.spin_iter, losses[i])
+            if isinstance(losses[i], float):
+                self.error_plotter.add_line('val_%d' % ind, self.spin_iter, losses[i])
 
             pos_embeds = embeds[i][labels[i]]
             neg_embeds = embeds[i][np.logical_not(labels[i])]
@@ -206,5 +205,5 @@ class BaseEmbeddingLearner(object):
             dataset = self.backend.get_training(a)
             rospy.loginfo('Training: action %d has (steps/terms) (%d/%d) and loss %s',
                           ind, dataset.num_tuples, dataset.num_terminals, str(losses[i]))
-            self.error_plotter.add_line(
-                'train_%d' % ind, self.spin_iter, losses[i])
+            if isinstance(losses[i], float):
+                self.error_plotter.add_line('train_%d' % ind, self.spin_iter, losses[i])

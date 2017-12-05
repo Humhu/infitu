@@ -27,19 +27,8 @@ def get_embed_validation(model, dataset, feed):
     labels : list of bools
         True if positive class, false if negative, corresponding to op outputs
     """
-    if dataset.num_tuples == 0:
-        sb = ()
-        si = ()
-    else:
-        sb, si = zip(*dataset.all_states)
-        
-    if dataset.num_terminals == 0:
-        stb = ()
-        sti = ()
-    else:
-        stb, sti = zip(*dataset.all_terminal_states)
-
-    ops = model.embed(imgs=si + sti, vecs=sb + stb, feed=feed)
+    ops = model.embed(states=dataset.all_states + dataset.all_terminal_states,
+                      feed=feed)
     labels = [True] * dataset.num_tuples + [False] * dataset.num_terminals
     return ops, np.array(labels)
 
@@ -62,12 +51,15 @@ class EmbeddingModel(object):
 
         self.img_size = img_size
         self.vec_size = vec_size
+
+        if not (self.using_image or self.using_vector):
+            raise ValueError('Must use image and/or vector')
+
         self.scope = scope
         self.spec = spec
 
         self.image_ph = self.make_img_input(name='image')
         self.vector_ph = self.make_vec_input(name='vector')
-
         net, params, state, ups = self.make_net(img_in=self.image_ph,
                                                 vec_in=self.vector_ph)
         self.net = net
@@ -78,49 +70,75 @@ class EmbeddingModel(object):
             s += '\n\t%s' % str(e)
         return s
 
+    @property
+    def using_image(self):
+        return not self.img_size is None
+
+    @property
+    def using_vector(self):
+        return not self.vec_size is None
+
     def make_img_input(self, name):
         """Creates an image input placeholder
         """
-        return tf.placeholder(tf.float32,
-                              shape=[None, self.img_size[0],
-                                     self.img_size[1], 1],
-                              name='%s%s' % (self.scope, name))
+        if not self.using_image:
+            return None
+        else:
+            return tf.placeholder(tf.float32,
+                                  shape=[None, self.img_size[0],
+                                         self.img_size[1], 1],
+                                  name='%s%s' % (self.scope, name))
 
     def make_vec_input(self, name):
         """Creates a vector input placeholder
         """
-        return tf.placeholder(tf.float32,
-                              shape=[None, self.vec_size],
-                              name='%s%s' % (self.scope, name))
+        if not self.using_vector:
+            return None
+        else:
+            return tf.placeholder(tf.float32,
+                                  shape=[None, self.vec_size],
+                                  name='%s%s' % (self.scope, name))
 
-    def make_net(self, img_in, vec_in, reuse=False):
+    def make_net(self, img_in=None, vec_in=None, reuse=False):
         """Creates the model network with the specified parameters
         """
-        return adel.make_conv2d_joint_net(img_in=img_in,
-                                          vector_in=vec_in,
-                                          scope=self.scope,
-                                          reuse=reuse,
-                                          **self.spec)
+        if self.using_image and not self.using_vector:
+            return adel.make_conv2d_fc_net(img_in=img_in,
+                                           scope=self.scope,
+                                           reuse=reuse,
+                                           **self.spec)
+        elif not self.using_image and self.using_vector:
+            return adel.make_fullycon(input=vec_in,
+                                      scope=self.scope,
+                                      reuse=reuse,
+                                      **self.spec)
+        else:
+            return adel.make_conv2d_joint_net(img_in=img_in,
+                                              vector_in=vec_in,
+                                              scope=self.scope,
+                                              reuse=reuse,
+                                              **self.spec)
 
-    def embed(self, imgs, vecs, feed):
+    def embed(self, states, feed):
         """Populates a feed dict and returns ops to perform an embedding
         using this model.
 
         Parameters
         ----------
-        imgs : 2D, 3D, or 4D numpy array of floats
-            Single or multiple channeled or unchanneled image inputs
-        vecs : 1 or 2D numpy array or floats
-            Single or multiple vector inputs
+        states : iterable of state tuples
         feed : dict
             Tensorflow feed dict to add fields to
         """
-        feed[self.image_ph] = rru.shape_data_2d(imgs)
-        feed[self.vector_ph] = rru.shape_data_vec(vecs)
-
+        if self.using_image and not self.using_vector:
+            feed[self.image_ph] = rru.shape_data_2d(states)
+        elif not self.using_image and self.using_vector:
+            feed[self.vector_ph] = rru.shape_data_vec(states)
+        else:
+            # By convention (vecs, imgs)
+            vecs, imgs = zip(*states)
+            feed[self.image_ph] = rru.shape_data_2d(imgs)
+            feed[self.vector_ph] = rru.shape_data_vec(vecs)
         return [self.net[-1]]
-
-# TODO How would we generalize the input architecture?
 
 
 class EmbeddingTask(object):
@@ -160,12 +178,12 @@ class EmbeddingTask(object):
         # Loss function penalty for different classes being near each other
         delta = self.p_net[-1] - self.n_net[-1]
         delta_sq = tf.reduce_sum(delta * delta, axis=-1)
-        
+
         # Squared exponential with sep_dist as bandwidth
         self.loss = tf.reduce_mean(-tf.exp(delta_sq / sep_dist))
-        
+
         # Huber with sep_dist as horizontal offset
-        #self.loss = tf.losses.huber_loss(labels=-delta_sq + sep_dist,
+        # self.loss = tf.losses.huber_loss(labels=-delta_sq + sep_dist,
         #                                 predictions=[0])
 
         opt = tf.train.AdamOptimizer(learning_rate=1e-3)
@@ -228,7 +246,7 @@ class EmbeddingTask(object):
                 return []
             s = self.training_sampler.sample_sars(k)[0]
             st = self.training_sampler.sample_terminals(k)[0]
-        
+
         self._fill_feed(s, st, feed)
         out = [self.loss]
         if train:
