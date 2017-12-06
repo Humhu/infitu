@@ -9,8 +9,8 @@ import numpy as np
 import dill
 
 
-class NetworkTrainer(object):
-    """Base class for nodes training tensorflow networks. Simplifies
+class NetworkInterface(object):
+    """Convenience class for training tensorflow networks. Simplifies
     enabling/disabling batch normalization and dropout, as well as
     initializing feed dicts for tensorflow.
     """
@@ -30,6 +30,13 @@ class NetworkTrainer(object):
             rospy.loginfo('Using dropout rate of %f', self.training_dropout)
             self.dropout_rate = tf.placeholder(tf.float32, name='dropout_rate')
             self.network_spec['dropout_rate'] = self.dropout_rate
+
+    @property
+    def network_args(self):
+        """Returns a kwarg dict to construct a neural network. Note that a copy
+        of the internal field is returned, so it may be modified.
+        """
+        return dict(self.network_spec)
 
     def init_feed(self, training):
         """Initializes a feed dict for training or execution.
@@ -53,21 +60,14 @@ class NetworkTrainer(object):
         return feed
 
 
-class BaseEmbeddingLearner(NetworkTrainer):
+class BaseEmbeddingLearner(object):
     """Base class for all action-split embedding learner nodes
     """
 
     def __init__(self, frontend_class):
-        NetworkTrainer.__init__(self)
+        self.trainer = NetworkInterface()
 
-        # NOTE We can't simply pickle the whole learner because the frontends won't
-        # load and save correctly due to ROS objects
-        load_path = rospy.get_param('~backend/load_path', None)
-        if load_path is not None:
-            self.backend = dill.load(open(load_path))
-        else:
-            self.backend = rr.ActionSplitBackend()
-
+        self.backend = rr.ActionSplitBackend()
         self.frontend = frontend_class(self.backend)
 
         self.sep_dist = rospy.get_param('~learning/separation_distance')
@@ -120,20 +120,18 @@ class BaseEmbeddingLearner(NetworkTrainer):
 
             rospy.loginfo('Creating new learner for action: %s' % str(a))
             with self.sess.graph.as_default():
-                model = self.create_model(
-                    scope='embed_%d/' % len(self.embeddings))
-                learner = rr.EmbeddingLearner(model=model,
-                                              train_data=self.backend.get_training(
-                                                  a),
-                                              sep_dist=self.sep_dist)
+                model = self.create_model(scope='embed_%d/' % len(self.embeddings))
+                learner = rr.EmbeddingTask(model=model,
+                                           train_data=self.backend.get_training(a),
+                                           sep_dist=self.sep_dist)
+                rospy.loginfo('Created embedding: %s', str(model))
 
-                rospy.loginfo('Created embedding: %s', str(learner))
                 self.sess.run(learner.initializers)
             # Store model index, model, and learner
             self.embeddings[a] = (len(self.embeddings), model, learner)
 
         if len(self.embeddings) == 0:
-            rospy.loginfo('No embeddings, skipping')
+            # rospy.loginfo('No embeddings, skipping')
             return
 
         self._spin_training()
@@ -145,7 +143,7 @@ class BaseEmbeddingLearner(NetworkTrainer):
     def _spin_validation(self):
         """Runs validation
         """
-        feed = self.init_feed(training=False)
+        feed = self.trainer.init_feed(training=False)
         ops = []
         labels = []
         for i, item in enumerate(self.embeddings.iteritems()):
@@ -174,8 +172,8 @@ class BaseEmbeddingLearner(NetworkTrainer):
             rospy.loginfo('Validation: action %d has (steps/terms) (%d/%d) and loss %s',
                           ind, val.num_tuples, val.num_terminals, str(losses[i]))
 
-            self.error_plotter.add_line(
-                'val_%d' % ind, self.spin_iter, losses[i])
+            if isinstance(losses[i], float):
+                self.error_plotter.add_line('val_%d' % ind, self.spin_iter, losses[i])
 
             pos_embeds = embeds[i][labels[i]]
             neg_embeds = embeds[i][np.logical_not(labels[i])]
@@ -188,7 +186,7 @@ class BaseEmbeddingLearner(NetworkTrainer):
         """Runs training and prints stats out after iterations
         """
         for _ in range(self.iters_per_spin):
-            feed = self.init_feed(training=True)
+            feed = self.trainer.init_feed(training=True)
             ops = []
             for i, item in enumerate(self.embeddings.iteritems()):
                 a, l = item
@@ -207,5 +205,5 @@ class BaseEmbeddingLearner(NetworkTrainer):
             dataset = self.backend.get_training(a)
             rospy.loginfo('Training: action %d has (steps/terms) (%d/%d) and loss %s',
                           ind, dataset.num_tuples, dataset.num_terminals, str(losses[i]))
-            self.error_plotter.add_line(
-                'train_%d' % ind, self.spin_iter, losses[i])
+            if isinstance(losses[i], float):
+                self.error_plotter.add_line('train_%d' % ind, self.spin_iter, losses[i])

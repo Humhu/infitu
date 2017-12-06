@@ -29,7 +29,8 @@
     </rosparam>
 </node> -->
 
-<node pkg="infi_learn" type="laser_embedding_learner.py" name="embedding" output="screen">
+<node pkg="infi_learn" type="laser_embedding_learner.py" name="embedding" output="screen"
+clear_params="true">
     <remap from="scan" to="scan_throttled"/>
     <remap from="reward" to="ape/reward"/>
     <remap from="action" to="lo_interface/normalized_parameters"/>
@@ -37,17 +38,19 @@
     <remap from="breaks" to="terminator/breaks"/>
     <rosparam>
         frontend:
+            use_laser: false
             laser_dim: 681
-            action_dim: 9
-            belief_dim: 3
-
             laser_nan_value: -1
             laser_inf_value: 5.6
 
+            use_belief: true
+            belief_dim: 3
+            
+            action_dim: 9
+
+            sync_time_tolerance: 0.1
             dt: 2.0
             lag: 3.0
-            time_tolerance: 0.1
-
 
             laser_fov: [-2.0943951, 2.0943951]
             laser_max_range: 5.5
@@ -71,7 +74,12 @@
             validation_period: 10
 
         network:
-            image_subnet:
+            n_layers: 3
+            n_units: [16, 16]
+            n_outputs: 16
+            final_rect: tanh
+            
+            <!-- image_subnet:
                 n_layers: 3
                 n_filters: [8, 8, 4]
                 filter_sizes: [4, 4, 4]
@@ -87,7 +95,7 @@
                 n_layers: 3
                 n_units: [32, 16]
                 n_outputs: 2
-                final_rect: tanh
+                final_rect: tanh -->
     </rosparam>
 </node>
 
