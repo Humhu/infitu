@@ -1,4 +1,4 @@
-"""Synchronization frontend base class
+"""Datastream interfacing frontend classes
 """
 import abc
 import rospy
@@ -8,15 +8,18 @@ from argus_utils import TimeSeries
 from infi_msgs.msg import RewardStamped, EpisodeBreak
 from broadcast.msg import FloatVectorStamped
 
-class SynchronizationFrontend(object):
-    """Interface for classes that receive and group raw data. Frontends define
-    the state, action, and rewards for an application.
+
+class BaseFrontend(object):
+    """Interface for classes that interface with raw datastreams. Wraps a
+    data sorter to automatically queue data.
+
+    Frontends define the state, action, and rewards for a problem.
     """
 
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, backend):
-        self._backend = backend
+    def __init__(self, sorter):
+        self._sorter = sorter
 
     def spin(self, current_time):
         """Process internal buffers to group and produce SARS tuples.
@@ -27,13 +30,13 @@ class SynchronizationFrontend(object):
             The current time in seconds since the epoch
         """
         sars, terms = self.spin_impl(current_time)
-        self._backend.report_sars(sars)
-        self._backend.report_terminals(terms)
+        self._sorter.report_sars(sars)
+        self._sorter.report_terminals(terms)
 
     @abc.abstractmethod
     def spin_impl(self, current_time):
         """Derived implementation of internal spin.
-        
+
         Returns
         -------
         sars  : list of SARS tuples
@@ -41,21 +44,20 @@ class SynchronizationFrontend(object):
         """
         pass
 
-class SARSFrontend(SynchronizationFrontend):
+
+class SARSFrontend(BaseFrontend):
     """Frontend that synchronizes an data source with a
     reward signal, action broadcast topic, and episode break topic.
     """
-
-    def __init__(self, source, backend):
-        SynchronizationFrontend.__init__(self, backend)
+    def __init__(self, source, sorter, action_dim, dt,
+                 lag=1.0, sync_time_tolerance=0.1):
+        BaseFrontend.__init__(self, sorter)
         self.source = source
 
-        self.action_dim = rospy.get_param('~frontend/action_dim')
+        self.action_dim = action_dim
 
-        dt = rospy.get_param('~frontend/dt')
-        self.lag = float(rospy.get_param('~frontend/lag'))
-        tol = rospy.get_param('~frontend/sync_time_tolerance')
-        self.sync = ad.SARSSynchronizer(dt=dt, tol=tol)
+        self.lag = lag
+        self.sync = ad.SARSSynchronizer(dt=dt, tol=sync_time_tolerance)
 
         # HACK to catch missing first episode start?
         self.inited = False

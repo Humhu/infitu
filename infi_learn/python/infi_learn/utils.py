@@ -9,7 +9,7 @@ class LaserImagePainter(object):
 
     Parameters
     ----------
-    laser_dim  : int
+    dim  : int
         Dimensionality of the laser scan
     laser_fov  : 2-tuple or list of float
         Min and max angular sweep of scan in radians
@@ -19,9 +19,9 @@ class LaserImagePainter(object):
         Image cell size in meters
     """
 
-    def __init__(self, laser_dim, laser_fov, max_range, resolution,
+    def __init__(self, dim, laser_fov, max_range, resolution,
                  dtype=np.uint8, empty_val=0, fill_val=1):
-        angles = np.linspace(laser_fov[0], laser_fov[1], laser_dim)
+        angles = np.linspace(laser_fov[0], laser_fov[1], dim)
         self._cosses = np.cos(angles)
         self._sines = np.sin(angles)
         self.res = resolution

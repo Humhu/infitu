@@ -8,29 +8,20 @@ import numpy as np
 import dill
 
 
-class LaserEmbeddingFrontend(object):
-    def __init__(self, backend):
+class LaserDataSources(object):
+    def __init__(self, backend, laser=None, belief=None, dt_tol=0.1, **kwargs):
         self.action_dim = rospy.get_param('~frontend/action_dim')
 
-        self.use_laser = rospy.get_param('~frontend/use_laser', False)
+        self.use_laser = laser not None
         if self.use_laser:
-            laser_dim = rospy.get_param('~frontend/laser_dim')
-            laser_fov = rospy.get_param('~frontend/laser_fov')
-            max_range = rospy.get_param('~frontend/laser_max_range')
-            resolution = rospy.get_param('~frontend/laser_paint_resolution')
-            self.laser_source = rr.LaserSource(laser_dim=laser_dim, topic='scan',
-                                               enable_painting=True, fov=laser_fov,
-                                               max_range=max_range, resolution=resolution,
-                                               enable_vis=True)
+            self.laser_source = rr.LaserSource(**laser_args)
 
-        self.use_belief = rospy.get_param('~frontend/use_belief', False)
+        belief_args = belief not None
+        self.use_belief = belief_args not None
         if self.use_belief:
-            self.belief_dim = rospy.get_param('~frontend/belief_dim')
-            self.belief_source = rr.VectorSource(dim=self.belief_dim,
-                                                 topic='belief')
+            self.belief_source = rr.VectorSource(**belief_args)
 
         if self.use_laser and self.use_belief:
-            dt_tol = rospy.get_param('~frontend/state_time_tolerance')
             # By convention (vecs, imgs)
             self.state_source = rr.MultiDataSource([self.belief_source, self.laser_source],
                                                    tol=dt_tol)
@@ -42,16 +33,14 @@ class LaserEmbeddingFrontend(object):
             raise ValueError('Must use laser and/or belief')
 
         self.frontend = rr.SARSFrontend(source=self.state_source,
-                                        backend=backend)
+                                        backend=backend,
+                                        **kwargs)
 
     def get_plottables(self):
         if self.use_laser:
             return [self.laser_source]
         else:
             return []
-
-    def spin(self, t):
-        self.frontend.spin(t)
 
     @property
     def img_size(self):
@@ -68,25 +57,43 @@ class LaserEmbeddingFrontend(object):
             return None
 
 
-class LaserEmbeddingLearner(rr.BaseEmbeddingLearner):
-    """Combines a laser frontend with an action-split backend to learn an embedding
-    for each action-split dataset.
-    """
-
-    def __init__(self):
-        super(LaserEmbeddingLearner, self).__init__(LaserEmbeddingFrontend)
-
-    def create_model(self, scope):
-        return rr.EmbeddingModel(img_size=self.frontend.img_size,
-                                 vec_size=self.frontend.belief_size,
-                                 scope=scope,
-                                 spec=self.trainer.network_args)
-
-
 if __name__ == '__main__':
     rospy.init_node('laser_embedding_learner')
-    lel = LaserEmbeddingLearner()
+
+    # Learn one embedding per action
+    backend = rr.KeySplitBackend(keyfunc=rr.strict_action_keyfunc,
+                                 **rospy.get_param('~backend'))
+
+    sources = LaserDataSources(backend=backend,
+                               **rospy.get_param('~frontend'))
+    network = rr.NetworkWrapper(**rospy.get_param('~network'))
+
+    def make_model(scope):
+        return rr.EmbeddingModel(img_size=sources.img_size,
+                                 vec_size=sources.belief_size,
+                                 scope=scope,
+                                 spec=network.network_args)
+
+    learner = EmbeddingLearner(make_model=make_model,
+                               backend=backend,
+                               network=network,
+                               **rospy.get_param('~learner'))
+
+    plot_group = rr.PlottingGroup()
+    for p in sources.get_plottables() + backend.get_plottables():
+        plot_group.add_plottable(p)
+
+    def spin(event):
+        sources.frontend.spin(event.current_real.to_sec())
+        learner.spin()
+
+    plot_rate = rospy.get_param('~plot_rate', 10.0)
+    spin_rate = rospy.get_param('~spin_rate')
+    spin_dt = 1.0 / spin_rate
+    spin_timer = rospy.Timer(rospy.Duration(spin_dt),
+                             callback=spin)
+
     try:
-        lel.spin_plot()
+        plot_group.spin(plot_rate)
     except rospy.ROSInterruptException:
         pass

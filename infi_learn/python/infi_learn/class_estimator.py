@@ -13,7 +13,7 @@ def rbf_window(x, xq, bw):
     #return np.exp(-dists / (2 * bw * bw))
     
     # return np.atleast_1d(ss.multivariate_normal.pdf(x=x-xq, cov=np.diag(bw)))
-    
+
     D = np.diag(bw)
     deltas = (x - xq).T
     ips = np.einsum('ji,jk,ki->i',deltas, D, deltas)
@@ -21,6 +21,9 @@ def rbf_window(x, xq, bw):
 
 
 def compute_classification_loss(classifier, x, y, params):
+    """Computes the classification loss of a classifier with the given
+    log hyperparameters on a dataset (x,y)
+    """
     classifier.set_log_params(params)
     pp = classifier.query(x)
     return np.mean(np.abs(y - pp))

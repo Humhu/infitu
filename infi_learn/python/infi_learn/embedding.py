@@ -1,36 +1,17 @@
 """Classes for learning embeddings
 """
-
-import tensorflow as tf
-import adel
 import itertools
-import utils as rru
+
 import numpy as np
+import tensorflow as tf
 
+import adel
+import rospy
 
-def get_embed_validation(model, dataset, feed):
-    """Generates tf ops to produce embeddings and labels for a dataset
-
-    Parameters
-    ----------
-    model : EmbeddingModel
-        The model to use
-    dataset : adel.SARSDataset
-        Dataset to fully embed. Assumes states are (belief, img) tuples
-    feed : dict
-        Tensorflow feed dict to add fields to
-
-    Returns
-    -------
-    ops : tensorflow operation
-        Operation to run to get embeddings
-    labels : list of bools
-        True if positive class, false if negative, corresponding to op outputs
-    """
-    ops = model.embed(states=dataset.all_states + dataset.all_terminal_states,
-                      feed=feed)
-    labels = [True] * dataset.num_tuples + [False] * dataset.num_terminals
-    return ops, np.array(labels)
+import backends as rrb
+import utils as rru
+import learners as rrl
+import plotting as rrp
 
 
 class EmbeddingModel(object):
@@ -128,6 +109,11 @@ class EmbeddingModel(object):
         states : iterable of state tuples
         feed : dict
             Tensorflow feed dict to add fields to
+
+        Returns
+        -------
+        ops : tensorflow operation
+            Operation to run to get embeddings
         """
         if self.using_image and not self.using_vector:
             feed[self.image_ph] = rru.shape_data_2d(states)
@@ -138,10 +124,35 @@ class EmbeddingModel(object):
             vecs, imgs = zip(*states)
             feed[self.image_ph] = rru.shape_data_2d(imgs)
             feed[self.vector_ph] = rru.shape_data_vec(vecs)
-        return [self.net[-1]]
+        return self.net[-1]
+
+    def embed_dataset(self, dataset, feed):
+        """Populates a feed dict with all states from a dataset and returns 
+        ops to perform an embedding using this model.
+
+        Parameters
+        ----------
+        model : EmbeddingModel
+            The model to use
+        dataset : adel.SARSDataset
+            Dataset to fully embed. Assumes states are (belief, img) tuples
+        feed : dict
+            Tensorflow feed dict to add fields to
+
+        Returns
+        -------
+        ops : tensorflow operation
+            Operation to run to get embeddings
+        labels : list of bools
+            True if positive class, false if negative, corresponding to op outputs
+        """
+        ops = self.embed(states=dataset.all_states + dataset.all_terminal_states,
+                         feed=feed)
+        labels = [True] * dataset.num_tuples + [False] * dataset.num_terminals
+        return ops, np.array(labels)
 
 
-class EmbeddingTask(object):
+class EmbeddingProblem(object):
     """Wraps an embedding network and learning optimization. Provides methods for
     using the embedding and sampling the dataset for aggregate learning.
 
@@ -160,7 +171,7 @@ class EmbeddingTask(object):
 
         self.train_dataset = train_data
         # TODO Not sure how we would change the sampling mode if we wanted to
-        self.training_sampler = adel.SamplingInterface(self.train_dataset)
+        self.training_sampler = adel.DatasetSampler(self.train_dataset)
 
         self.p_image_ph = model.make_img_input(name='p_image')
         self.p_belief_ph = model.make_vec_input(name='p_belief')
@@ -268,3 +279,148 @@ class EmbeddingTask(object):
         bel_t, img_t = zip(*[st[i] for i in neg_is])
         feed[self.n_belief_ph] = rru.shape_data_vec(bel_t)
         feed[self.n_image_ph] = rru.shape_data_2d(img_t)
+
+
+class EmbeddingLearner(object):
+    """Base class for all embedding learning backends. Derived class
+    should implement create_model method.
+
+    Parameters
+    ----------
+    make_model : function taking scope as argument
+        Function that constructs a new EmbeddingModel given scope string
+    backend    : KeySplitBackend object
+        Data storage backend to use for learning
+    network    : NetworkWrapper object
+        
+    """
+
+    def __init__(self, make_model, backend, network,
+                 separation_distance=1.0, batch_size=30, iters_per_spin=10,
+                 validation_period=0):
+        self.network = network
+        self.backend = backend
+        self.make_model = make_model
+
+        self.sep_dist = separation_distance
+        self.batch_size = batch_size
+        self.iters_per_spin = iters_per_spin
+
+        self.spin_iter = 0
+
+        self.validation_period = validation_period
+        self.dummy_loss = tf.constant('n/a')
+
+        self.embeddings = {}
+        self.sess = tf.Session()
+
+        # Plotting and visualization
+        # TODO One plotter per embedding
+        self.error_plotter = rrp.LineSeriesPlotter(title='Embedding losses over time',
+                                                   xlabel='Spin iter',
+                                                   ylabel='Embedding loss')
+        self.embed_plotter = rrp.LineSeriesPlotter(title='Validation embeddings',
+                                                   xlabel='Embedding dimension 1',
+                                                   ylabel='Embedding dimension 2')
+
+    def get_plottables(self):
+        return [self.error_plotter, self.embed_plotter]
+
+    def spin(self):
+        """Run the learn/validation cycle
+        """
+        # See if we have any new actions to initialize embeddings for
+        for key in self.backend.get_splits():
+            if key in self.embeddings:
+                continue
+
+            rospy.loginfo('Creating new learner for key: %s' % str(key))
+            with self.sess.graph.as_default():
+                model = self.make_model(scope='embed_%d/' %
+                                        len(self.embeddings))
+                learner = EmbeddingProblem(model=model,
+                                           train_data=self.backend.get_training(
+                                               key),
+                                           sep_dist=self.sep_dist)
+                rospy.loginfo('Created embedding: %s', str(model))
+
+                self.sess.run(learner.initializers)
+            # Store model index, model, and learner
+            self.embeddings[key] = (len(self.embeddings), model, learner)
+
+        if len(self.embeddings) == 0:
+            return
+
+        self._spin_training()
+        if self.validation_period > 0 and (self.spin_iter % self.validation_period) == 0:
+            self._spin_validation()
+
+        self.spin_iter += 1
+
+    def _spin_validation(self):
+        """Runs validation
+        """
+        feed = self.network.init_feed(training=False)
+        ops = []
+        labels = []
+        for i, item in enumerate(self.embeddings.iteritems()):
+            key, l = item
+            ind, model, learner = l
+            val = self.backend.get_validation(key)
+            # NOTE We're doing double work to compute the loss and the embedding
+            # separately here, but it keeps the interfaces simpler
+            loss_ops = learner.get_feed_dataset(feed=feed, dataset=val)
+            emb_ops, labs = model.embed_dataset(feed=feed, dataset=val)
+            if len(loss_ops) == 0:
+                loss_ops = [self.dummy_loss]
+            ops += loss_ops + [emb_ops]
+            labels.append(labs)
+
+        res = self.sess.run(ops, feed_dict=feed)
+        losses = res[0::2]
+        embeds = res[1::2]
+
+        for i, item in enumerate(self.embeddings.iteritems()):
+            key, l = item
+            ind, model, learner = l
+            val = self.backend.get_validation(key)
+            rospy.loginfo('Validation: key %d has (steps/terms) (%d/%d) and loss %s',
+                          ind, val.num_tuples, val.num_terminals, str(losses[i]))
+
+            if isinstance(losses[i], float):
+                self.error_plotter.add_line(
+                    'val_%d' % ind, self.spin_iter, losses[i])
+
+            pos_embeds = embeds[i][labels[i]]
+            neg_embeds = embeds[i][np.logical_not(labels[i])]
+            self.embed_plotter.set_line('val+_%d' % ind, pos_embeds[:, 0], pos_embeds[:, 1],
+                                        marker='o', linestyle='none')
+            self.embed_plotter.set_line('val-_%d' % ind, neg_embeds[:, 0], neg_embeds[:, 1],
+                                        marker='x', linestyle='none')
+
+    def _spin_training(self):
+        """Runs training and prints stats out after iterations
+        """
+        for _ in range(self.iters_per_spin):
+            feed = self.network.init_feed(training=True)
+            ops = []
+            for i, item in enumerate(self.embeddings.iteritems()):
+                key, l = item
+                ind, model, learner = l
+                i_ops = learner.get_feed_training(feed=feed, k=self.batch_size)
+                if len(i_ops) == 0:
+                    i_ops = [self.dummy_loss, self.dummy_loss]
+                ops += i_ops
+
+            res = self.sess.run(ops, feed_dict=feed)
+
+        losses = res[::2]
+        for i, item in enumerate(self.embeddings.iteritems()):
+            key, l = item
+            ind, model, learner = l
+            dataset = self.backend.get_training(key)
+            rospy.loginfo('Training: action %d has (steps/terms) (%d/%d) and loss %s',
+                          ind, dataset.num_tuples, dataset.num_terminals, str(losses[i]))
+            if isinstance(losses[i], float):
+                self.error_plotter.add_line(
+                    'train_%d' % ind, self.spin_iter, losses[i])

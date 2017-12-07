@@ -95,15 +95,15 @@ class LaserSource(DataSource, Plottable):
     """Subscribes to a laser scan and optionally paints them to a 2D image.
     """
 
-    def __init__(self, laser_dim, topic, enable_painting=False, fov=(-1, 1),
+    def __init__(self, dim, topic, enable_painting=False, fov=(-1, 1),
                  max_range=float('inf'), resolution=0.1, laser_nan_value=-1,
                  laser_inf_value=-1, enable_vis=False):
         super(LaserSource, self).__init__()
 
-        self.laser_dim = laser_dim
+        self.dim = dim
         self.painter = None
         if enable_painting:
-            self.painter = LaserImagePainter(laser_dim=self.laser_dim,
+            self.painter = LaserImagePainter(dim=self.dim,
                                              laser_fov=fov,
                                              max_range=max_range,
                                              resolution=resolution,

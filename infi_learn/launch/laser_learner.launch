@@ -31,20 +31,24 @@
 
 <node pkg="infi_learn" type="laser_embedding_learner.py" name="embedding" output="screen"
 clear_params="true">
-    <remap from="scan" to="scan_throttled"/>
     <remap from="reward" to="ape/reward"/>
     <remap from="action" to="lo_interface/normalized_parameters"/>
-    <remap from="belief" to="belief_state/stream_raw"/>
     <remap from="breaks" to="terminator/breaks"/>
     <rosparam>
         frontend:
-            use_laser: false
-            laser_dim: 681
-            laser_nan_value: -1
-            laser_inf_value: 5.6
+            laser:
+                topic: scan_throttled
+                dim: 681
+                nan_value: -1
+                inf_value: 5.6
 
-            use_belief: true
-            belief_dim: 3
+                fov: [-2.0943951, 2.0943951]
+                max_range: 5.5
+                paint_resolution: 0.1
+
+            belief:
+                topic: belief_state/stream_raw
+                dim: 3
             
             action_dim: 9
 
@@ -52,34 +56,31 @@ clear_params="true">
             dt: 2.0
             lag: 3.0
 
-            laser_fov: [-2.0943951, 2.0943951]
-            laser_max_range: 5.5
-            laser_paint_resolution: 0.1
-
         backend:
-            save_path: /home/humphreh/Software/argus_ws/lo_test.pkl
-            holdout_rate: 0.05
-            holdout_mode: contiguous
-            holdout_segment_length: 30
+            validation:
+                rate: 0.05
+                mode: contiguous
+                segment_length: 30
 
         spin_rate: 1.0
+        plot_rate: 10.0
 
-        learning:
+        learner:
             separation_distance: 0.5
             batch_size: 10
             iters_per_spin: 10
-            
-            batch_normalization: false
-            dropout_rate: 0.1
             validation_period: 10
 
         network:
-            n_layers: 3
+            use_batch_norm: false
+            dropout_rate: 0.0
+
+            <!-- n_layers: 3
             n_units: [16, 16]
             n_outputs: 16
-            final_rect: tanh
+            final_rect: tanh -->
             
-            <!-- image_subnet:
+            image_subnet:
                 n_layers: 3
                 n_filters: [8, 8, 4]
                 filter_sizes: [4, 4, 4]
@@ -95,7 +96,7 @@ clear_params="true">
                 n_layers: 3
                 n_units: [32, 16]
                 n_outputs: 2
-                final_rect: tanh -->
+                final_rect: tanh
     </rosparam>
 </node>
 
