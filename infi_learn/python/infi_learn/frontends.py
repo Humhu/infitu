@@ -11,15 +11,15 @@ from broadcast.msg import FloatVectorStamped
 
 class BaseFrontend(object):
     """Interface for classes that interface with raw datastreams. Wraps a
-    data sorter to automatically queue data.
+    data backend to automatically queue data.
 
     Frontends define the state, action, and rewards for a problem.
     """
 
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, sorter):
-        self._sorter = sorter
+    def __init__(self, backend):
+        self._backend = backend
 
     def spin(self, current_time):
         """Process internal buffers to group and produce SARS tuples.
@@ -30,8 +30,8 @@ class BaseFrontend(object):
             The current time in seconds since the epoch
         """
         sars, terms = self.spin_impl(current_time)
-        self._sorter.report_sars(sars)
-        self._sorter.report_terminals(terms)
+        self._backend.report_sars(sars)
+        self._backend.report_terminals(terms)
 
     @abc.abstractmethod
     def spin_impl(self, current_time):
@@ -49,9 +49,9 @@ class SARSFrontend(BaseFrontend):
     """Frontend that synchronizes an data source with a
     reward signal, action broadcast topic, and episode break topic.
     """
-    def __init__(self, source, sorter, action_dim, dt,
+    def __init__(self, source, backend, action_dim, dt,
                  lag=1.0, sync_time_tolerance=0.1):
-        BaseFrontend.__init__(self, sorter)
+        BaseFrontend.__init__(self, backend)
         self.source = source
 
         self.action_dim = action_dim

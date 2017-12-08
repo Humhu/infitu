@@ -54,12 +54,13 @@ class LineSeriesPlotter(Plottable):
         plt.title(title)
         self.objects = {}
 
-    def _focus(self):
-        plt.figure(self.fig.number)
+    # def _focus(self):
+    #     plt.figure(self.fig.number)
 
     def draw(self):
-        self._focus()
-        plt.draw()
+        # self._focus()
+        # plt.draw()
+        self.fig.canvas.draw_idle()
 
     def _check_in(self, x):
         if np.iterable(x):
@@ -68,7 +69,7 @@ class LineSeriesPlotter(Plottable):
             return [x]
 
     def add_line(self, name, x, y, **kwargs):
-        self._focus()
+        # self._focus()
         x = list( np.atleast_1d(x) )
         y = list( np.atleast_1d(y) )
         
@@ -83,7 +84,7 @@ class LineSeriesPlotter(Plottable):
             self.ax.autoscale_view(True, True, True)
 
     def set_line(self, name, x, y, **kwargs):
-        self._focus()
+        # self._focus()
         x = list( np.atleast_1d(x) )
         y = list( np.atleast_1d(y) )
 
@@ -97,14 +98,14 @@ class LineSeriesPlotter(Plottable):
             self.ax.autoscale_view(True, True, True)
 
     def _create_line(self, name, x, y, **kwargs):
-        self.objects[name] = (plt.plot(x, y, label=name, **kwargs)[0],
+        self.objects[name] = (self.ax.plot(x, y, label=name, **kwargs)[0],
                                x, y)
-        plt.legend()
+        self.ax.legend()
 
     def clear_line(self, name):
         if name in self.objects:
             self.objects[name][0].remove()
             self.objects.pop(name)
-            plt.legend()
+            self.ax.legend()
             self.ax.relim()
             self.ax.autoscale_view(True, True, True)

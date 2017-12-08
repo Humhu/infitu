@@ -115,6 +115,9 @@ class EmbeddingModel(object):
         ops : tensorflow operation
             Operation to run to get embeddings
         """
+        if len(states) == 0:
+            return None
+
         if self.using_image and not self.using_vector:
             feed[self.image_ph] = rru.shape_data_2d(states)
         elif not self.using_image and self.using_vector:
@@ -146,10 +149,13 @@ class EmbeddingModel(object):
         labels : list of bools
             True if positive class, false if negative, corresponding to op outputs
         """
-        ops = self.embed(states=dataset.all_states + dataset.all_terminal_states,
-                         feed=feed)
-        labels = [True] * dataset.num_tuples + [False] * dataset.num_terminals
-        return ops, np.array(labels)
+        if dataset.num_tuples == 0 and dataset.num_terminals == 0:
+            return [], []
+        else:
+            states = dataset.all_states + dataset.all_terminal_states
+            labels = [True] * dataset.num_tuples + [False] * dataset.num_terminals
+            ops = self.embed(states=states, feed=feed)
+            return ops, np.array(labels)
 
 
 class EmbeddingProblem(object):
@@ -292,7 +298,7 @@ class EmbeddingLearner(object):
     backend    : KeySplitBackend object
         Data storage backend to use for learning
     network    : NetworkWrapper object
-        
+
     """
 
     def __init__(self, make_model, backend, network,
@@ -357,6 +363,7 @@ class EmbeddingLearner(object):
 
         self.spin_iter += 1
 
+    # TODO Clean this hot mess up!
     def _spin_validation(self):
         """Runs validation
         """
@@ -373,6 +380,8 @@ class EmbeddingLearner(object):
             emb_ops, labs = model.embed_dataset(feed=feed, dataset=val)
             if len(loss_ops) == 0:
                 loss_ops = [self.dummy_loss]
+            if emb_ops is None:
+                emb_ops = self.dummy_loss
             ops += loss_ops + [emb_ops]
             labels.append(labs)
 
@@ -390,13 +399,13 @@ class EmbeddingLearner(object):
             if isinstance(losses[i], float):
                 self.error_plotter.add_line(
                     'val_%d' % ind, self.spin_iter, losses[i])
-
-            pos_embeds = embeds[i][labels[i]]
-            neg_embeds = embeds[i][np.logical_not(labels[i])]
-            self.embed_plotter.set_line('val+_%d' % ind, pos_embeds[:, 0], pos_embeds[:, 1],
-                                        marker='o', linestyle='none')
-            self.embed_plotter.set_line('val-_%d' % ind, neg_embeds[:, 0], neg_embeds[:, 1],
-                                        marker='x', linestyle='none')
+            if isinstance(embeds[i], np.ndarray):
+                pos_embeds = embeds[i][labels[i]]
+                neg_embeds = embeds[i][np.logical_not(labels[i])]
+                self.embed_plotter.set_line('val+_%d' % ind, pos_embeds[:, 0], pos_embeds[:, 1],
+                                            marker='o', linestyle='none')
+                self.embed_plotter.set_line('val-_%d' % ind, neg_embeds[:, 0], neg_embeds[:, 1],
+                                            marker='x', linestyle='none')
 
     def _spin_training(self):
         """Runs training and prints stats out after iterations

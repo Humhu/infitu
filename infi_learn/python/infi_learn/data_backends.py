@@ -96,14 +96,14 @@ class KeySplitBackend(object):
 
     def report_sars(self, sars):
         for item in sars:
-            k = self.keyfunc(item)
+            k = self.keyfunc(*item)
             if k not in self.datasets:
                 self.create_split(k)
             self.datasets[k].report_sars(*item)
 
     def report_terminals(self, sa):
         for item in sa:
-            k = self.keyfunc(item)
+            k = self.keyfunc(*item)
             if k not in self.datasets:
                 self.create_split(k)
             self.datasets[k].report_terminal(*item)

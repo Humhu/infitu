@@ -19,9 +19,9 @@ class LaserImagePainter(object):
         Image cell size in meters
     """
 
-    def __init__(self, dim, laser_fov, max_range, resolution,
+    def __init__(self, dim, fov, max_range, resolution,
                  dtype=np.uint8, empty_val=0, fill_val=1):
-        angles = np.linspace(laser_fov[0], laser_fov[1], dim)
+        angles = np.linspace(fov[0], fov[1], dim)
         self._cosses = np.cos(angles)
         self._sines = np.sin(angles)
         self.res = resolution

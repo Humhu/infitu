@@ -12,14 +12,14 @@ class LaserDataSources(object):
     def __init__(self, backend, laser=None, belief=None, dt_tol=0.1, **kwargs):
         self.action_dim = rospy.get_param('~frontend/action_dim')
 
-        self.use_laser = laser not None
+        self.use_laser = laser is not None
         if self.use_laser:
-            self.laser_source = rr.LaserSource(**laser_args)
+            self.laser_source = rr.LaserSource(**laser)
 
-        belief_args = belief not None
-        self.use_belief = belief_args not None
+        belief_args = belief is not None
+        self.use_belief = belief_args is not None
         if self.use_belief:
-            self.belief_source = rr.VectorSource(**belief_args)
+            self.belief_source = rr.VectorSource(**belief)
 
         if self.use_laser and self.use_belief:
             # By convention (vecs, imgs)
@@ -52,7 +52,7 @@ class LaserDataSources(object):
     @property
     def belief_size(self):
         if self.use_belief:
-            return self.belief_dim
+            return self.belief_source.dim
         else:
             return None
 
@@ -74,13 +74,13 @@ if __name__ == '__main__':
                                  scope=scope,
                                  spec=network.network_args)
 
-    learner = EmbeddingLearner(make_model=make_model,
-                               backend=backend,
-                               network=network,
-                               **rospy.get_param('~learner'))
+    learner = rr.EmbeddingLearner(make_model=make_model,
+                                  backend=backend,
+                                  network=network,
+                                  **rospy.get_param('~learner'))
 
     plot_group = rr.PlottingGroup()
-    for p in sources.get_plottables() + backend.get_plottables():
+    for p in sources.get_plottables() + learner.get_plottables():
         plot_group.add_plottable(p)
 
     def spin(event):

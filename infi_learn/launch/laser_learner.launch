@@ -42,6 +42,8 @@ clear_params="true">
                 nan_value: -1
                 inf_value: 5.6
 
+                enable_painting: true
+                enable_vis: true
                 fov: [-2.0943951, 2.0943951]
                 max_range: 5.5
                 paint_resolution: 0.1

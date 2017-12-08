@@ -96,29 +96,33 @@ class LaserSource(DataSource, Plottable):
     """
 
     def __init__(self, dim, topic, enable_painting=False, fov=(-1, 1),
-                 max_range=float('inf'), resolution=0.1, laser_nan_value=-1,
-                 laser_inf_value=-1, enable_vis=False):
+                 max_range=float('inf'), paint_resolution=0.1, nan_value=-1,
+                 inf_value=-1, enable_vis=False):
         super(LaserSource, self).__init__()
 
         self.dim = dim
+        
+        self.enable_vis = enable_vis
+        if enable_vis and not enable_painting:
+            raise ValueError('Cannot enable_vis but not enable_painting')
+
         self.painter = None
         if enable_painting:
             self.painter = LaserImagePainter(dim=self.dim,
-                                             laser_fov=fov,
+                                             fov=fov,
                                              max_range=max_range,
-                                             resolution=resolution,
+                                             resolution=paint_resolution,
                                              dtype=np.uint8,
                                              empty_val=0,
                                              fill_val=1)
             rospy.loginfo('Enabled painting with image size: %s',
                           str(self.painter.img_size))
-            self.enable_vis = enable_vis
             self.pim = None
             if self.enable_vis:
                 self.pfig = plt.figure()
 
-        self.laser_nan_val = laser_nan_value
-        self.laser_inf_val = laser_inf_value
+        self.laser_nan_val = nan_value
+        self.laser_inf_val = inf_value
 
         self.laser_sub = rospy.Subscriber(topic, LaserScan,
                                           callback=self._scan_callback)
