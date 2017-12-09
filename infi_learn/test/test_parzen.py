@@ -99,7 +99,7 @@ def print_params():
 
 
 # 3. Perform hyperparameter optimization
-p0 = classifier.get_log_params()
+p0 = classifier.log_params
 visualize('Initial validation loss is %f' % obj(p0))
 print_params()
 

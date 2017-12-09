@@ -35,7 +35,11 @@ clear_params="true">
     <remap from="action" to="lo_interface/normalized_parameters"/>
     <remap from="breaks" to="terminator/breaks"/>
     <rosparam>
-        frontend:
+        embedding_spin_rate: 1.0
+        classifier_spin_rate: 0.1
+        plot_rate: 10.0
+        
+        sources:
             laser:
                 topic: scan_throttled
                 dim: 681
@@ -51,54 +55,63 @@ clear_params="true">
             belief:
                 topic: belief_state/stream_raw
                 dim: 3
-            
-            action_dim: 9
 
+
+        sars_frontend:
+            action_dim: 9
             sync_time_tolerance: 0.1
             dt: 2.0
             lag: 3.0
 
-        backend:
-            validation:
-                rate: 0.05
-                mode: contiguous
-                segment_length: 30
+        embedding:
+            learning:
+                holdout:
+                    rate: 0.05
+                    mode: contiguous
+                    segment_length: 30
 
-        spin_rate: 1.0
-        plot_rate: 10.0
+                loss:
+                    separation_distance: 0.5
 
-        learner:
-            separation_distance: 0.5
-            batch_size: 10
-            iters_per_spin: 10
-            validation_period: 10
+                batch_num_sars: 10
+                batch_num_terminal: 10
+                iters_per_spin: 10
+                validation_period: 10
 
-        network:
-            use_batch_norm: false
-            dropout_rate: 0.0
+            network:
+                use_batch_norm: false
+                dropout_rate: 0.0
+                image_subnet:
+                    n_layers: 3
+                    n_filters: [8, 8, 4]
+                    filter_sizes: [4, 4, 4]
+                    conv_strides: 1
+                    pool_sizes: [4, 4, 5]
+                    pool_strides: [2, 2, 3]
+                vector_subnet:
+                    n_layers: 3
+                    n_units: [16, 16]
+                    n_outputs: 16
+                    final_rect: relu
+                final_subnet:
+                    n_layers: 3
+                    n_units: [32, 16]
+                    n_outputs: 2
+                    final_rect: tanh
 
-            <!-- n_layers: 3
-            n_units: [16, 16]
-            n_outputs: 16
-            final_rect: tanh -->
+        classification:
+            classifier:
+                bandwidth: 1.0
+                epsilon: 0.0
             
-            image_subnet:
-                n_layers: 3
-                n_filters: [8, 8, 4]
-                filter_sizes: [4, 4, 4]
-                conv_strides: 1
-                pool_sizes: [4, 4, 5]
-                pool_strides: [2, 2, 3]
-            vector_subnet:
-                n_layers: 3
-                n_units: [16, 16]
-                n_outputs: 16
-                final_rect: relu
-            final_subnet:
-                n_layers: 3
-                n_units: [32, 16]
-                n_outputs: 2
-                final_rect: tanh
+            holdout:
+                rate: 0.05
+                mode: uniform
+
+            optimizer:
+                type: bfgs
+                mode: min
+                num_restarts: 2
     </rosparam>
 </node>
 

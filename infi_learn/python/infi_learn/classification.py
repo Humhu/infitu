@@ -4,29 +4,32 @@ import numpy as np
 import scipy.stats as ss
 import scipy.spatial.distance as ssd
 import sklearn.neighbors as skn
+from itertools import izip
 
 
 def rbf_window(x, xq, bw):
     """A vectorized radial basis function kernel
     """
     #dists = ssd.cdist(x, xq, metric='euclidean')
-    #return np.exp(-dists / (2 * bw * bw))
-    
+    # return np.exp(-dists / (2 * bw * bw))
+
     # return np.atleast_1d(ss.multivariate_normal.pdf(x=x-xq, cov=np.diag(bw)))
 
     D = np.diag(bw)
     deltas = (x - xq).T
-    ips = np.einsum('ji,jk,ki->i',deltas, D, deltas)
-    return np.exp( -ips * 0.5 )
+    ips = np.einsum('ji,jk,ki->i', deltas, D, deltas)
+    return np.exp(-ips * 0.5)
 
 
 def compute_classification_loss(classifier, x, y, params):
     """Computes the classification loss of a classifier with the given
     log hyperparameters on a dataset (x,y)
     """
-    classifier.set_log_params(params)
+    if params is not None:
+        classifier.log_params = params
     pp = classifier.query(x)
     return np.mean(np.abs(y - pp))
+
 
 def regularized_parzen_estimate(xq, x, y, window, epsilon=0):
     """Returns probability of positive class at query xq
@@ -79,7 +82,13 @@ class ParzenNeighborsClassifier(object):
         self.X = None
         self.labels = None
 
-    def set_log_params(self, p):
+    @property
+    def log_params(self):
+        p = np.hstack([self.epsilon, self.radius, self.bw])
+        return np.log(p)
+
+    @log_params.setter
+    def log_params(self, p):
         """Set the bandwidth and regularization log-parameters.
         Assumes [eps, rad, bw] ordering for p.
         """
@@ -87,10 +96,6 @@ class ParzenNeighborsClassifier(object):
         self.epsilon = params[0]
         self.radius = params[1]
         self.bw = params[2:]
-
-    def get_log_params(self):
-        p = np.hstack([self.epsilon, self.radius, self.bw])
-        return np.log(p)
 
     def update_model(self, X, labels):
         """Regenerates the dataset embedding and retrains the
@@ -141,3 +146,24 @@ class ParzenNeighborsClassifier(object):
             probs.append(probi)
         probs = np.squeeze(probs)
         return probs
+
+
+def optimize_parzen_neighbors(classifier, dataset, optimizer):
+    """Optimizes a classifier using a dataset and optimizer
+
+    Returns
+    -------
+    err : float
+        The final optimized classification loss
+    """
+
+    x = dataset.all_positives + dataset.all_negatives
+    y = [True] * dataset.num_positives + [False] * dataset.num_negatives
+
+    def objective(p):
+        return compute_classification_loss(classifier=classifier,
+                                           x=x, y=y, params=p)
+
+    p, err = optimizer.optimize(x_init=classifier.log_params, func=objective)
+    classifier.log_params = p
+    return err

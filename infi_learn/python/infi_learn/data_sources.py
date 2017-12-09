@@ -146,7 +146,7 @@ class LaserSource(DataSource, Plottable):
             ranges[ranges == float('inf')] = self.laser_inf_val
         return ranges
 
-
+    # TODO Use ImagePlotter object instead
     def draw(self):
         if self.enable_vis:
             plt.figure(self.pfig.number)
