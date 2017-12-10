@@ -1,34 +1,5 @@
 <launch>
 
-<!-- <node pkg="relearn_reconfig" type="test_laser.py" name="learner" output="screen">
-    <remap from="scan" to="scan_throttled"/>
-    <remap from="reward" to="ape/reward"/>
-    <remap from="action" to="lo_interface/normalized_parameters"/>
-    <remap from="belief" to="belief_state/stream_raw"/>
-    <remap from="breaks" to="terminator/breaks"/>
-    <rosparam>
-        laser_dim: 681
-        belief_dim: 9
-        action_dim: 9
-
-        laser_nan_value: -1
-        laser_inf_value: 5.6
-
-        dt: 3.0
-        lag: 1.0
-        time_tolerance: 0.1
-        belief_dt_tol: 0.1
-        spin_rate: 1.0
-
-        save_path: /home/humphreh/Software/argus_ws/lo_slow_3.pkl
-
-        enable_painting: true
-        laser_fov: [-2.0943951, 2.0943951]
-        laser_max_range: 5.5
-        painting_resolution: 0.1
-    </rosparam>
-</node> -->
-
 <node pkg="infi_learn" type="laser_embedding_learner.py" name="embedding" output="screen"
 clear_params="true">
     <remap from="reward" to="ape/reward"/>
@@ -41,22 +12,12 @@ clear_params="true">
         
         sources:
             dt_tol: 0.1
-            laser:
-                topic: scan_throttled
-                dim: 681
-                nan_value: -1
-                inf_value: 5.6
+            image:
+                image_mode: gray
+                topic: laser0/scan_paint
 
-                enable_painting: true
-                enable_vis: true
-                fov: [-2.0943951, 2.0943951]
-                max_range: 5.5
-                paint_resolution: 0.1
-
-            <!-- belief:
+            belief:
                 topic: belief_state/stream_raw
-                dim: 3 -->
-
 
         sars_frontend:
             action_dim: 9

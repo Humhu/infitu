@@ -80,13 +80,15 @@ class VectorSource(DataSource):
     """Subscribes to a stamped vector
     """
 
-    def __init__(self, dim, topic):
+    def __init__(self, topic):
         super(VectorSource, self).__init__()
-        self.dim = dim
+        self.dim = None
         self.vec_sub = rospy.Subscriber(topic, FloatVectorStamped,
                                         callback=self._vec_callback)
 
     def _vec_callback(self, msg):
+        if self.dim is None:
+            self.dim = len(msg.values)
         self.buffer_data(t=msg.header.stamp.to_sec(),
                          data=msg.values)
 
@@ -156,9 +158,9 @@ class ImageSource(DataSource):
     """Subscribes to an image topic.
     """
 
-    def __init__(self, image_dims, topic, image_mode='gray'):
+    def __init__(self, topic, image_mode='gray'):
         super(ImageSource, self).__init__()
-        self.image_dims = image_dims
+        self.dim = None
         self.image_mode = image_mode
         self.num_image_channels()  # NOTE Arg checking
         self.image_bridge = CvBridge()
@@ -175,6 +177,7 @@ class ImageSource(DataSource):
             raise ValueError('Invalid image mode: %s' % self.image_mode)
 
     def _image_callback(self, msg):
+
         if self.image_mode == 'gray':
             try:
                 image = self.image_bridge.imgmsg_to_cv2(msg, "mono8")
@@ -188,5 +191,7 @@ class ImageSource(DataSource):
                 rospy.logerr('Could not convert image: %s', str(e))
                 return
 
+        if self.dim is None:
+            self.dim = image.shape
         self.buffer_data(t=msg.header.stamp.to_sec(),
                          data=image)

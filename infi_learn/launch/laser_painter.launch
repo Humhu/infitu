@@ -1,0 +1,16 @@
+<launch>
+
+    <arg name="scan_topic"/>
+    <arg name="image_topic"/>
+
+    <node pkg="infi_learn" type="laser_painter.py" name="painter" output="screen">
+        <remap from="scan" to="$(arg scan_topic)"/>
+        <remap from="image" to="$(arg image_topic)"/>
+        <rosparam>
+            fov: [-2.0943951, 2.0943951]
+            max_range: 5.5
+            paint_resolution: 0.1
+        </rosparam>
+    </node>
+
+</launch>

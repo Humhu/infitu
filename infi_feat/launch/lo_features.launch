@@ -19,7 +19,7 @@
         use_pose: false
         use_pose_cov: false
         use_vel: true
-        use_vel_cov: false
+        use_vel_cov: true
         two_dimensional: true
     </rosparam>
 </node>

@@ -11,36 +11,36 @@ from itertools import izip
 
 
 class DataSources(object):
-    def __init__(self, laser=None, belief=None, dt_tol=0.1):
-        self.use_laser = laser is not None
-        if self.use_laser:
-            self.laser_source = rr.LaserSource(**laser)
+    def __init__(self, image=None, belief=None, dt_tol=0.1):
+        self.use_image = image is not None
+        if self.use_image:
+            self.image_source = rr.ImageSource(**image)
 
         self.use_belief = belief is not None
         if self.use_belief:
             self.belief_source = rr.VectorSource(**belief)
 
-        if self.use_laser and self.use_belief:
+        if self.use_image and self.use_belief:
             # By convention (vecs, imgs)
-            self.state_source = rr.MultiDataSource([self.belief_source, self.laser_source],
+            self.state_source = rr.MultiDataSource([self.belief_source, self.image_source],
                                                    tol=dt_tol)
-        elif self.use_laser and not self.use_belief:
-            self.state_source = self.laser_source
-        elif not self.use_laser and self.use_belief:
+        elif self.use_image and not self.use_belief:
+            self.state_source = self.image_source
+        elif not self.use_image and self.use_belief:
             self.state_source = self.belief_source
         else:
-            raise ValueError('Must use laser and/or belief')
+            raise ValueError('Must use image and/or belief')
 
     def get_plottables(self):
-        if self.use_laser:
-            return [self.laser_source]
+        if self.use_image:
+            return [self.image_source]
         else:
             return []
 
     @property
     def img_size(self):
-        if self.use_laser:
-            return self.laser_source.painter.img_size
+        if self.use_image:
+            return self.image_source.img_dims
         else:
             return None
 
@@ -328,7 +328,7 @@ class EmbeddingLearnerNode(object):
             classifier.spin(sess=self.sess)
 
 if __name__ == '__main__':
-    rospy.init_node('laser_embedding_learner')
+    rospy.init_node('image_embedding_learner')
 
     eln = EmbeddingLearnerNode()
 
