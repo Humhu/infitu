@@ -11,6 +11,7 @@ import rospy
 import utils as rru
 import networks as rrn
 
+
 class EmbeddingNetwork(rrn.NetworkBase):
     """Wraps and provides methods for querying an embedding network.
 
@@ -24,8 +25,7 @@ class EmbeddingNetwork(rrn.NetworkBase):
     """
 
     def __init__(self, img_size, vec_size, **kwargs):
-        rrn.NetworkBase.__init__(**kwargs)
-
+        rrn.NetworkBase.__init__(self, **kwargs)
         self.img_size = img_size
         self.vec_size = vec_size
 
@@ -37,12 +37,31 @@ class EmbeddingNetwork(rrn.NetworkBase):
         net, params, state, ups = self.make_net(img_in=self.image_ph,
                                                 vec_in=self.vector_ph)
         self.net = net
+        self.params = params
 
     def __repr__(self):
         s = 'Embedding network:'
         for e in self.net:
             s += '\n\t%s' % str(e)
         return s
+
+    def initialize(self, sess):
+        sess.run([p.initializer for p in self.params], feed_dict={})
+
+    def parse_states(self, states):
+        if self.using_vector and self.using_image:
+            bel, img = zip(*states)
+            bel = rru.shape_data_vec(bel)
+            img = rru.shape_data_2d(img)
+        elif self.using_vector and not self.using_image:
+            bel = rru.shape_data_vec(states)
+            img = None
+        elif not self.using_vector and self.using_image:
+            bel = None
+            img = rru.shape_data_2d(states)
+        else:
+            raise ValueError('Must use vector and/or image')
+        return bel, img
 
     @property
     def using_image(self):
@@ -140,8 +159,8 @@ class EmbeddingNetwork(rrn.NetworkBase):
         labels : list of bools
         """
         states = data.all_states + data.all_terminal_states
-        embed = self.get_embed_ops(states=states, feed=feed) 
-        labels = [True] * data.num_states + [False] * data.num_terminals
+        embed = self.get_embed_ops(states=states, feed=feed)
+        labels = [True] * data.num_sars + [False] * data.num_terminals
         return embed, np.array(labels)
 
 
@@ -158,7 +177,7 @@ class EmbeddingProblem(object):
     """
     # TODO Make loss a parameter?
 
-    def __init__(self, model, sep_dist):
+    def __init__(self, model, separation_distance):
         self.model = model
 
         self.p_image_ph = model.make_img_input(name='p_image')
@@ -179,11 +198,12 @@ class EmbeddingProblem(object):
         delta_sq = tf.reduce_sum(delta * delta, axis=-1)
 
         # Squared exponential with sep_dist as bandwidth
-        self.loss = tf.reduce_mean(-tf.exp(delta_sq / sep_dist))
+        self.sep_dist = separation_distance
+        # self.loss = tf.reduce_mean(-tf.exp(delta_sq / self.sep_dist))
 
         # Huber with sep_dist as horizontal offset
-        # self.loss = tf.losses.huber_loss(labels=-delta_sq + sep_dist,
-        #                                 predictions=[0])
+        self.loss = tf.losses.huber_loss(labels=-delta_sq + self.sep_dist,
+                                         predictions=[0])
 
         opt = tf.train.AdamOptimizer(learning_rate=1e-3)
         with tf.control_dependencies(ups):
@@ -208,7 +228,8 @@ class EmbeddingProblem(object):
     def run_embedding(self, sess, data):
         feed = self.model.init_feed(training=False)
         ops, labels = self.model.embed_dataset(data=data, feed=feed)
-        return sess.run(ops, feed_dict=feed), labels
+        embed = sess.run(ops, feed_dict=feed)
+        return embed, labels
 
     def _fill_feed(self, data, feed):
         """Helper to create class permutations and populate
@@ -219,9 +240,14 @@ class EmbeddingProblem(object):
         neg_combos = list(itertools.product(sinds, stinds))
         neg_i, neg_is = zip(*neg_combos)
 
-        bel, img = zip(*[data.all_states[i] for i in neg_i])
-        feed[self.p_belief_ph] = rru.shape_data_vec(bel)
-        feed[self.p_image_ph] = rru.shape_data_2d(img)
-        bel_t, img_t = zip(*[data.all_terminal_states[i] for i in neg_is])
-        feed[self.n_belief_ph] = rru.shape_data_vec(bel_t)
-        feed[self.n_image_ph] = rru.shape_data_2d(img_t)
+        bel, img = self.model.parse_states([data.all_states[i] for i in neg_i])
+        bel_t, img_t = self.model.parse_states(
+            [data.all_terminal_states[i] for i in neg_is])
+
+        if self.model.using_vector:
+            feed[self.p_belief_ph] = bel
+            feed[self.n_belief_ph] = bel_t
+
+        if self.model.using_image:
+            feed[self.p_image_ph] = img
+            feed[self.n_image_ph] = img_t

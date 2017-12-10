@@ -37,9 +37,10 @@ clear_params="true">
     <rosparam>
         embedding_spin_rate: 1.0
         classifier_spin_rate: 0.1
-        plot_rate: 10.0
+        plot_rate: 1.0
         
         sources:
+            dt_tol: 0.1
             laser:
                 topic: scan_throttled
                 dim: 681
@@ -52,16 +53,16 @@ clear_params="true">
                 max_range: 5.5
                 paint_resolution: 0.1
 
-            belief:
+            <!-- belief:
                 topic: belief_state/stream_raw
-                dim: 3
+                dim: 3 -->
 
 
         sars_frontend:
             action_dim: 9
             sync_time_tolerance: 0.1
             dt: 2.0
-            lag: 3.0
+            lag: 1.0
 
         embedding:
             learning:
@@ -88,11 +89,11 @@ clear_params="true">
                     conv_strides: 1
                     pool_sizes: [4, 4, 5]
                     pool_strides: [2, 2, 3]
-                vector_subnet:
+                <!-- vector_subnet:
                     n_layers: 3
                     n_units: [16, 16]
                     n_outputs: 16
-                    final_rect: relu
+                    final_rect: relu -->
                 final_subnet:
                     n_layers: 3
                     n_units: [32, 16]
@@ -100,18 +101,23 @@ clear_params="true">
                     final_rect: tanh
 
         classification:
+            visualize: true
+            vis_res: 30
+
             classifier:
-                bandwidth: 1.0
-                epsilon: 0.0
+                bandwidth: [1.0, 1.0]
+                epsilon: 1e-3
             
             holdout:
-                rate: 0.05
+                rate: 0.1
                 mode: uniform
 
             optimizer:
                 type: bfgs
                 mode: min
                 num_restarts: 2
+                lower_bounds: -6
+                upper_bounds: 3
     </rosparam>
 </node>
 

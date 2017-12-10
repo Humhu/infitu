@@ -16,8 +16,7 @@ class DataSources(object):
         if self.use_laser:
             self.laser_source = rr.LaserSource(**laser)
 
-        belief_args = belief is not None
-        self.use_belief = belief_args is not None
+        self.use_belief = belief is not None
         if self.use_belief:
             self.belief_source = rr.VectorSource(**belief)
 
@@ -88,6 +87,13 @@ class EmbeddingLearner(object):
                                                   xlabel='Embedding dimension 1',
                                                   ylabel='Embedding dimension 2')
 
+    def initialize(self, sess):
+        self.problem.initialize(sess)
+
+    @property
+    def scope(self):
+        return self.problem.model.scope
+
     def report_data(self, key, data):
         self.holdout.report_data(key=key, data=data)
 
@@ -102,6 +108,10 @@ class EmbeddingLearner(object):
         return self.problem.run_embedding(sess=sess, data=data)
 
     def spin(self, sess):
+        rospy.loginfo('Embedding %s has %d/%d (act/term) training, %d/%d validation',
+                      self.scope, self.training_sars.num_sars, self.training_sars.num_terminals,
+                      self.validation_sars.num_sars, self.validation_sars.num_terminals)
+
         train_loss = None
         for _ in range(self.iters_per_spin):
             if self.training_sars.num_sars < self.sars_k or self.training_sars.num_terminals < self.term_k:
@@ -131,24 +141,25 @@ class EmbeddingLearner(object):
             pos_embeds = val_embed[val_labels]
             neg_embeds = val_embed[np.logical_not(val_labels)]
             self.embed_plotter.set_line('val+', pos_embeds[:, 0], pos_embeds[:, 1],
-                                        marker='o', linestyle='none')
+                                        marker='o', markerfacecolor='none', linestyle='none')
             self.embed_plotter.set_line('val-', neg_embeds[:, 0], neg_embeds[:, 1],
                                         marker='x', linestyle='none')
 
 
 class ClassifierLearner(object):
     def __init__(self, embedding, classifier, holdout, optimizer,
-                 visualize=True, vis_res=30):
+                 visualize=True, vis_res=10):
         self.classifier = rr.ParzenNeighborsClassifier(**classifier)
         self.embedding = embedding
         self.optimizer = optim.parse_optimizers(**optimizer)
 
         self.training_base = adel.BasicDataset()
         self.tuning_base = adel.BasicDataset()
+        self.validation_base = adel.BasicDataset()
+        
         self.holdout = adel.HoldoutWrapper(training=self.training_base,
                                            holdout=self.tuning_base,
                                            **holdout)
-        self.validation_base = adel.BasicDataset()
 
         self.report_binary = adel.BinaryDatasetTranslator(self.holdout)
         self.training_binary = adel.BinaryDatasetTranslator(self.training_base)
@@ -161,9 +172,8 @@ class ClassifierLearner(object):
 
         if self.visualize:
             # TODO Put scope in name
-            self.heat_plotter = rr.ImagePlotter(
-                vmin=0, vmax=1, title='Classifier')
-            self.point_plotter = rr.LineSeriesPlotter(ax=self.heat_plotter.ax)
+            self.heat_plotter = rr.ImagePlotter(vmin=0, vmax=1, title='Classifier')
+            self.point_plotter = rr.LineSeriesPlotter(other=self.heat_plotter)
 
     def get_plottables(self):
         if self.visualize:
@@ -171,9 +181,9 @@ class ClassifierLearner(object):
         else:
             return []
 
-    def __update_dataset(self, sess):
-        self.training_base.clear()
-        self.tuning_base.clear()
+    def update_dataset(self, sess):
+        self.holdout.clear()
+        self.validation_base.clear()
         embed, labels = self.embedding.get_embedding(sess=sess,
                                                      on_training_data=True)
         for x, y in izip(embed, labels):
@@ -190,20 +200,26 @@ class ClassifierLearner(object):
             else:
                 self.validation_binary.report_negative(x)
 
-    def __update_classifier(self):
+        rospy.loginfo('Classifier %s has %d/%d (pos/neg) training, %d/%d tuning, %d/%d validation',
+                      self.embedding.scope,
+                      self.training_binary.num_positives, self.training_binary.num_negatives,
+                      self.tuning_binary.num_positives, self.tuning_binary.num_negatives,
+                      self.validation_binary.num_positives, self.validation_binary.num_negatives)
+
+    def update_classifier(self):
         X = self.training_binary.all_positives + self.training_binary.all_negatives
         labels = [True] * self.training_binary.num_positives \
             + [False] * self.training_binary.num_negatives
         self.classifier.update_model(X=X, labels=labels)
 
-    def __visualize(self, data):
+    def visualize_classifier(self, data):
         if not self.visualize:
             return
 
         pos, neg = data.all_data
+        all_data = np.array(pos + neg)
         pos = np.array(pos)
         neg = np.array(neg)
-        all_data = np.vstack((pos, neg))
 
         mins = np.min(all_data, axis=0)
         maxs = np.max(all_data, axis=0)
@@ -217,18 +233,30 @@ class ClassifierLearner(object):
 
         self.heat_plotter.set_image(img=pimg,
                                     extents=(mins[0], maxs[0], mins[1], maxs[1]))
-        self.point_plotter.set_line(name='+', x=pos[:, 0], y=pos[:, 1],
-                                    color='k', marker='o', linestyle='none')
-        self.point_plotter.set_line(name='-', x=neg[:, 0], y=neg[:, 1],
-                                    color='k', marker='x', linestyle='none')
+        if len(pos) > 0:
+            self.point_plotter.set_line(name='pos', x=pos[:, 0], y=pos[:, 1],
+                                        color='k', marker='o', markerfacecolor='none', 
+                                        linestyle='none')
+        if len(neg) > 0:
+            self.point_plotter.set_line(name='neg', x=neg[:, 0], y=neg[:, 1],
+                                        color='k', marker='x', linestyle='none')
 
-    def spin(self, sess):
-        self.__update_dataset(sess=sess)
-        self.__update_classifier()
+    def optimize(self):
         rr.optimize_parzen_neighbors(classifier=self.classifier,
                                      dataset=self.tuning_binary,
                                      optimizer=self.optimizer)
-        self.__visualize(data=self.validation_binary)
+        rospy.loginfo('Classifier %s params: %s', self.embedding.scope,
+                      self.classifier.print_params())
+
+    def spin(self, sess):
+        self.update_dataset(sess=sess)
+        
+        if self.training_binary.num_data > 0:
+            self.update_classifier()
+
+            if self.tuning_binary.num_data > 0:
+                self.optimize()
+                self.visualize_classifier(data=self.validation_binary)
 
 
 class EmbeddingLearnerNode(object):
@@ -242,7 +270,9 @@ class EmbeddingLearnerNode(object):
         self.learner_args = rospy.get_param('~embedding/learning')
         self.classifier_args = rospy.get_param('~classification')
         self.registry = {}
+
         self.sess = tf.Session()
+
         self.plot_group = rr.PlottingGroup()
 
         spin_rate = rospy.get_param('~embedding_spin_rate')
@@ -256,13 +286,20 @@ class EmbeddingLearnerNode(object):
                                             callback=self.spin_classifier)
 
     def initialize_new(self, scope):
-        model = rr.EmbeddingModel(img_size=self.sources.img_size,
-                                  vec_size=self.sources.belief_size,
-                                  scope=scope,
-                                  spec=self.network_args)
-        learner = EmbeddingLearner(model=model,
-                                   **self.learner_args)
-        classifier = ClassifierLearner(**self.classifier_args)
+        with self.sess.graph.as_default():
+            model = rr.EmbeddingNetwork(img_size=self.sources.img_size,
+                                        vec_size=self.sources.belief_size,
+                                        scope=scope,
+                                        **self.network_args)
+            learner = EmbeddingLearner(model=model,
+                                       **self.learner_args)
+            classifier = ClassifierLearner(embedding=learner,
+                                           **self.classifier_args)
+            
+            # Initialize tensorflow variables
+            model.initialize(self.sess)
+            learner.initialize(self.sess)
+            print 'Created net:\n%s' % str(model)
 
         for p in learner.get_plottables() + classifier.get_plottables():
             self.plot_group.add_plottable(p)
@@ -289,7 +326,6 @@ class EmbeddingLearnerNode(object):
         for val in self.registry.itervalues():
             model, learner, classifier = val
             classifier.spin(sess=self.sess)
-
 
 if __name__ == '__main__':
     rospy.init_node('laser_embedding_learner')

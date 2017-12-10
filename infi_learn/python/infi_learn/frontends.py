@@ -61,7 +61,7 @@ class SARSFrontend(BaseFrontend):
                  lag=1.0, sync_time_tolerance=0.1):
         BaseFrontend.__init__(self)
         self.source = source
-
+        self.inited = False
         self.action_dim = action_dim
 
         self.lag = lag
@@ -75,6 +75,7 @@ class SARSFrontend(BaseFrontend):
                                           callback=self.break_callback)
 
     def break_callback(self, msg):
+        self.inited = True
         if msg.start:
             self.sync.buffer_episode_active(msg.time.to_sec())
         else:
@@ -92,10 +93,12 @@ class SARSFrontend(BaseFrontend):
                       self.sync.num_actions_buffered,
                       self.sync.num_rewards_buffered)
         sars, terms = self.sync.process(now=head)
-
         return [(True, i) for i in sars] + [(False, i) for i in terms]
 
     def action_callback(self, msg):
+        if not self.inited:
+            self.sync.buffer_episode_active(msg.header.stamp.to_sec())
+            self.inited = True
         self.sync.buffer_action(t=msg.header.stamp.to_sec(), a=msg.values)
 
     def reward_callback(self, msg):

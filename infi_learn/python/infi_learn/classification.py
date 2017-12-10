@@ -66,8 +66,13 @@ class ParzenNeighborsClassifier(object):
 
     def __init__(self, bandwidth, epsilon, radius=None, window=None):
         self.nn_model = skn.NearestNeighbors()
-        self.bw = bandwidth
-        self.epsilon = epsilon
+        
+        if np.iterable(bandwidth):
+            self.bw = [float(bi) for bi in bandwidth]
+        else:
+            self.bw = float(bandwidth)
+
+        self.epsilon = float(epsilon)
 
         if window is None:
             self.window = rbf_window
@@ -75,7 +80,7 @@ class ParzenNeighborsClassifier(object):
             self.window = window
         if radius is None:
             # Rule of thumb
-            self.radius = 3 * self.bw
+            self.radius = 3 * np.mean(self.bw)
         else:
             self.radius = radius
 
@@ -97,6 +102,10 @@ class ParzenNeighborsClassifier(object):
         self.radius = params[1]
         self.bw = params[2:]
 
+    def print_params(self):
+        return 'Bandwidth: %s epsilon: %f radius: %f' \
+            % (str(self.bw), self.epsilon, self.radius)
+
     def update_model(self, X, labels):
         """Regenerates the dataset embedding and retrains the
         nearest neighbor model
@@ -105,8 +114,8 @@ class ParzenNeighborsClassifier(object):
         ----------
         X : array of vectors, or numpy 2D
         """
-        self.X = X
-        self.labels = labels
+        self.X = np.array(X)
+        self.labels = np.array(labels)
         self.nn_model.fit(X=X)
 
     def query(self, x):
