@@ -38,7 +38,7 @@ class EpisodeTerminator(object):
             out = EpisodeBreak()
             out.start = True
             out.cause = 'Starting episode: reward %f at time %s greater than threshold %f' \
-                % (msg.reawrd, str(msg.header.stamp), self.min_reward)
+                % (msg.reward, str(msg.header.stamp), self.min_reward)
             out.time = rospy.Time.now()
             rospy.loginfo(out.cause)
             self.break_pub.publish(out)

@@ -81,7 +81,7 @@ class LaserPainter(object):
         self.bridge = CvBridge()
         self.laser_sub = rospy.Subscriber('scan', LaserScan,
                                           callback=self.scan_callback)
-        self.image_pub = rospy.Publisher('image', Image)
+        self.image_pub = rospy.Publisher('image', Image, queue_size=10)
 
     def init_painter(self, dim):
         self.painter = LaserImagePainter(dim=dim,
