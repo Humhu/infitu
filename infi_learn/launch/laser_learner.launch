@@ -20,7 +20,6 @@ clear_params="true">
                 topic: belief_state/stream_raw
 
         sars_frontend:
-            action_dim: 9
             sync_time_tolerance: 0.1
             dt: 2.0
             lag: 1.0

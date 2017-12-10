@@ -57,12 +57,12 @@ class SARSFrontend(BaseFrontend):
         Terminal SA data have False and payload (s, a)
     """
 
-    def __init__(self, source, action_dim, dt,
+    def __init__(self, source, dt,
                  lag=1.0, sync_time_tolerance=0.1):
         BaseFrontend.__init__(self)
         self.source = source
         self.inited = False
-        self.action_dim = action_dim
+        self.action_dim = None
 
         self.lag = lag
         self.sync = ad.SARSSynchronizer(dt=dt, tol=sync_time_tolerance)
@@ -96,6 +96,8 @@ class SARSFrontend(BaseFrontend):
         return [(True, i) for i in sars] + [(False, i) for i in terms]
 
     def action_callback(self, msg):
+        if self.action_dim is None:
+            self.action_dim = len(msg.values)
         if not self.inited:
             self.sync.buffer_episode_active(msg.header.stamp.to_sec())
             self.inited = True
