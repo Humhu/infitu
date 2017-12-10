@@ -8,9 +8,6 @@ import numpy as np
 import rospy
 from sensor_msgs.msg import Image, LaserScan
 
-from utils import LaserImagePainter
-from plotting import Plottable
-
 from cv_bridge import CvBridge, CvBridgeError
 from broadcast.msg import FloatVectorStamped
 from argus_utils import TimeSeries
@@ -93,36 +90,15 @@ class VectorSource(DataSource):
                          data=msg.values)
 
 
-class LaserSource(DataSource, Plottable):
-    """Subscribes to a laser scan and optionally paints them to a 2D image.
+class LaserSource(DataSource):
+    """Subscribes to a laser scan
     """
 
-    def __init__(self, dim, topic, enable_painting=False, fov=(-1, 1),
-                 max_range=float('inf'), paint_resolution=0.1, nan_value=-1,
-                 inf_value=-1, enable_vis=False):
+    def __init__(self, topic, max_range=float('inf'), nan_value=-1,
+                 inf_value=-1):
         super(LaserSource, self).__init__()
 
-        self.dim = dim
-        
-        self.enable_vis = enable_vis
-        if enable_vis and not enable_painting:
-            raise ValueError('Cannot enable_vis but not enable_painting')
-
-        self.painter = None
-        if enable_painting:
-            self.painter = LaserImagePainter(dim=self.dim,
-                                             fov=fov,
-                                             max_range=max_range,
-                                             resolution=paint_resolution,
-                                             dtype=np.uint8,
-                                             empty_val=0,
-                                             fill_val=1)
-            rospy.loginfo('Enabled painting with image size: %s',
-                          str(self.painter.img_size))
-            self.pim = None
-            if self.enable_vis:
-                self.pfig = plt.figure()
-
+        self.dim = None
         self.laser_nan_val = nan_value
         self.laser_inf_val = inf_value
 
@@ -130,29 +106,16 @@ class LaserSource(DataSource, Plottable):
                                           callback=self._scan_callback)
 
     def _scan_callback(self, msg):
+        if self.dim is None:
+            self.dim = len(msg.ranges)
         self.buffer_data(t=msg.header.stamp.to_sec(),
                          data=self._proc_scan(msg))
 
     def _proc_scan(self, scan):
         ranges = np.array(scan.ranges)
-        if self.painter is not None:
-            ranges = self.painter.scan_to_image(ranges)
-            if self.enable_vis:
-                plt.figure(self.pfig.number)
-                if self.pim is None:
-                    self.pim = plt.imshow(ranges[:,:,0])
-                else:
-                    self.pim.set_data(ranges[:,:,0])
-        else:
-            ranges[np.isnan(ranges)] = self.laser_nan_val
-            ranges[ranges == float('inf')] = self.laser_inf_val
+        ranges[np.isnan(ranges)] = self.laser_nan_val
+        ranges[ranges == float('inf')] = self.laser_inf_val
         return ranges
-
-    # TODO Use ImagePlotter object instead
-    def draw(self):
-        if self.enable_vis:
-            plt.figure(self.pfig.number)
-            plt.draw()
 
 class ImageSource(DataSource):
     """Subscribes to an image topic.

@@ -1,6 +1,6 @@
 <launch>
 
-<node pkg="infi_learn" type="laser_embedding_learner.py" name="embedding" output="screen"
+<node pkg="infi_learn" type="embedding_learner.py" name="embedding" output="screen"
 clear_params="true">
     <remap from="reward" to="ape/reward"/>
     <remap from="action" to="lo_interface/normalized_parameters"/>
@@ -14,7 +14,7 @@ clear_params="true">
             dt_tol: 0.1
             image:
                 image_mode: gray
-                topic: laser0/scan_paint
+                topic: feature_image
 
             belief:
                 topic: belief_state/stream_raw
@@ -50,11 +50,11 @@ clear_params="true">
                     conv_strides: 1
                     pool_sizes: [4, 4, 5]
                     pool_strides: [2, 2, 3]
-                <!-- vector_subnet:
+                vector_subnet:
                     n_layers: 3
                     n_units: [16, 16]
                     n_outputs: 16
-                    final_rect: relu -->
+                    final_rect: relu
                 final_subnet:
                     n_layers: 3
                     n_units: [32, 16]

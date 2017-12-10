@@ -6,9 +6,11 @@
 <arg name="odom_topic"/>
 <arg name="odom_rate" default="10.0"/>
 
-<node pkg="topic_tools" type="throttle" name="scan_throttler" output="screen" args="messages $(arg scan_topic) $(arg scan_rate) scan_throttled"/>
+<node pkg="topic_tools" type="throttle" name="scan_throttler" output="screen" 
+args="messages $(arg scan_topic) $(arg scan_rate) scan_throttled"/>
 
-<node pkg="topic_tools" type="throttle" name="odom_throttler" output="screen" args="messages $(arg odom_topic) $(arg odom_rate) odom_throttled"/>
+<node pkg="topic_tools" type="throttle" name="odom_throttler" output="screen" 
+args="messages $(arg odom_topic) $(arg odom_rate) odom_throttled"/>
 
 <node pkg="infi_feat" type="belief_state_broadcaster" name="belief_state" output="screen">
     <remap from="odom" to="odom_throttled"/>
@@ -21,6 +23,16 @@
         use_vel: true
         use_vel_cov: true
         two_dimensional: true
+    </rosparam>
+</node>
+
+<node pkg="infi_learn" type="laser_painter.py" name="painter" output="screen">
+    <remap from="scan" to="scan_throttled"/>
+    <remap from="image" to="feature_image"/>
+    <rosparam>
+        fov: [-2.0943951, 2.0943951]
+        max_range: 5.5
+        paint_resolution: 0.1
     </rosparam>
 </node>
 

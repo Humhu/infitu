@@ -11,16 +11,8 @@
     <arg name="odom_topic" value="vel_odom"/>
 </include>
 
-<node pkg="infi_learn" type="laser_painter.py" name="painter" output="screen">
-    <remap from="scan" to="laser0/scan_raw"/>
-    <remap from="image" to="laser0/scan_paint"/>
-    <rosparam>
-        fov: [-2.0943951, 2.0943951]
-        max_range: 5.5
-        paint_resolution: 0.1
-    </rosparam>
-</node>
-
-<include file="$(find infi_perf)/launch/rewards_vel2d.launch"/>
+<include file="$(find infi_perf)/launch/rewards_vel2d.launch">
+    <arg name="odom_topic" value="odom_throttled"/>
+</include>
 
 </launch>

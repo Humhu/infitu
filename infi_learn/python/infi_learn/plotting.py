@@ -87,7 +87,8 @@ class PlottingGroup(object):
     def draw_all(self):
         for p in self.plots:
             p.draw()
-        plt.pause(0.01)
+        if len(self.plots) > 0:
+            plt.pause(0.01)
 
     def spin(self, rate):
         while not rospy.is_shutdown():

@@ -8,7 +8,7 @@ import tensorflow as tf
 import numpy as np
 import dill
 from itertools import izip
-
+import matplotlib.pyplot as plt
 
 class DataSources(object):
     def __init__(self, image=None, belief=None, dt_tol=0.1):
@@ -40,7 +40,7 @@ class DataSources(object):
     @property
     def img_size(self):
         if self.use_image:
-            return self.image_source.img_dims
+            return self.image_source.dim
         else:
             return None
 
@@ -331,7 +331,7 @@ if __name__ == '__main__':
     rospy.init_node('image_embedding_learner')
 
     eln = EmbeddingLearnerNode()
-
+    plt.figure()
     plot_rate = rospy.get_param('~plot_rate', 10.0)
     try:
         eln.plot_group.spin(plot_rate)
