@@ -31,12 +31,6 @@ class DataSources(object):
         else:
             raise ValueError('Must use image and/or belief')
 
-    def get_plottables(self):
-        if self.use_image:
-            return [self.image_source]
-        else:
-            return []
-
     @property
     def img_size(self):
         if self.use_image:
@@ -331,7 +325,8 @@ if __name__ == '__main__':
     rospy.init_node('image_embedding_learner')
 
     eln = EmbeddingLearnerNode()
-    plt.figure()
+    
+    plt.ioff()
     plot_rate = rospy.get_param('~plot_rate', 10.0)
     try:
         eln.plot_group.spin(plot_rate)

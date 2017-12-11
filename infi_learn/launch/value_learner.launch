@@ -1,0 +1,60 @@
+<launch>
+
+<node pkg="infi_learn" type="value_learner.py" name="value_learner" output="screen"
+clear_params="true">
+    <remap from="reward" to="ape/reward"/>
+    <remap from="action" to="lo_interface/normalized_parameters"/>
+    <rosparam>
+        value_spin_rate: 1.0
+        plot_rate: 1.0
+        
+        sources:
+            dt_tol: 0.1
+            image:
+                image_mode: gray
+                topic: feature_image
+
+            belief:
+                topic: belief_state/stream_raw
+
+        sars_frontend:
+            sync_time_tolerance: 0.1
+            dt: 3.0
+            gamma: 1.0
+            lag: 1.0
+
+        value:
+            learning:
+                holdout:
+                    rate: 0.05
+                    mode: contiguous
+                    segment_length: 30
+
+                batch_size: 30
+                iters_per_spin: 10
+                validation_period: 10
+
+            network:
+                use_batch_norm: false
+                dropout_rate: 0.0
+                image_subnet:
+                    n_layers: 3
+                    n_filters: [8, 8, 4]
+                    filter_sizes: [4, 4, 4]
+                    conv_strides: 1
+                    pool_sizes: [4, 4, 5]
+                    pool_strides: [2, 2, 3]
+                vector_subnet:
+                    n_layers: 3
+                    n_units: [16, 16]
+                    n_outputs: 16
+                    final_rect: relu
+                final_subnet:
+                    n_layers: 3
+                    n_units: [32, 16]
+                    n_outputs: 1
+                    final_rect: relu
+    </rosparam>
+</node>
+
+</launch>

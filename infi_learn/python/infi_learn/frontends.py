@@ -57,7 +57,7 @@ class SARSFrontend(BaseFrontend):
         Terminal SA data have False and payload (s, a)
     """
 
-    def __init__(self, source, dt,
+    def __init__(self, source, dt, break_mode='message',
                  lag=1.0, sync_time_tolerance=0.1):
         BaseFrontend.__init__(self)
         self.source = source
@@ -71,8 +71,16 @@ class SARSFrontend(BaseFrontend):
                                            callback=self.reward_callback)
         self.action_sub = rospy.Subscriber('action', FloatVectorStamped,
                                            callback=self.action_callback)
-        self.break_sub = rospy.Subscriber('breaks', EpisodeBreak,
-                                          callback=self.break_callback)
+
+        self.break_mode = break_mode
+        if self.break_mode == 'message':
+            self.break_sub = rospy.Subscriber('breaks', EpisodeBreak,
+                                            callback=self.break_callback)
+        elif self.break_mode == 'action_change':
+            self.last_action = None
+            self.last_action_time = None
+        else:
+            raise ValueError('Unrecognized break mode %s' % break_mode)
 
     def break_callback(self, msg):
         self.inited = True
@@ -98,10 +106,21 @@ class SARSFrontend(BaseFrontend):
     def action_callback(self, msg):
         if self.action_dim is None:
             self.action_dim = len(msg.values)
+
+        a = msg.values
+        t = msg.header.stamp.to_sec()
         if not self.inited:
-            self.sync.buffer_episode_active(msg.header.stamp.to_sec())
+            self.sync.buffer_episode_active(t)
             self.inited = True
-        self.sync.buffer_action(t=msg.header.stamp.to_sec(), a=msg.values)
+
+        if self.break_mode == 'action_change':
+            if self.last_action is not None and self.last_action != a:
+                self.sync.buffer_episode_terminate(self.last_action_time)
+                self.sync.buffer_episode_active(t)
+            self.last_action = a
+            self.last_action_time = t
+
+        self.sync.buffer_action(t=t, a=a)
 
     def reward_callback(self, msg):
         self.sync.buffer_reward(t=msg.header.stamp.to_sec(), r=msg.reward)
