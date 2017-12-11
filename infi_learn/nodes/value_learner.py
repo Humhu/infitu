@@ -8,6 +8,7 @@ import infi_learn as rr
 from infi_msgs.msg import EpisodeBreak
 import matplotlib.pyplot as plt
 
+
 class DataSources(object):
     def __init__(self, image=None, vector=None, dt_tol=0.1):
         self.use_image = image is not None
@@ -68,9 +69,12 @@ class ValueLearner(object):
 
         self.spin_counter = 0
 
-        self.error_plotter = rr.LineSeriesPlotter(title='Embedding losses over time %s' % model.scope,
+        self.error_plotter = rr.LineSeriesPlotter(title='Value error over time %s' % model.scope,
                                                   xlabel='Spin iter',
-                                                  ylabel='Embedding loss')
+                                                  ylabel='Mean squared loss')
+        self.value_plotter = rr.LineSeriesPlotter(title='Values %s' % model.scope,
+                                                  xlabel='Spin iter',
+                                                  ylabel='Value')
 
     def initialize(self, sess):
         self.problem.initialize(sess)
@@ -83,7 +87,7 @@ class ValueLearner(object):
         self.reporter.report_label(x=state, y=value)
 
     def get_plottables(self):
-        return [self.error_plotter]
+        return [self.error_plotter, self.value_plotter]
 
     def get_values(self, sess, on_training_data=True):
         if on_training_data:
@@ -119,6 +123,15 @@ class ValueLearner(object):
             rospy.loginfo('Validation loss: %f ' % val_loss)
             self.error_plotter.add_line(
                 'validation', self.spin_counter, val_loss)
+
+            values = self.problem.run_output(sess=sess, data=self.val_data)
+            self.value_plotter.set_line('predicted', x=range(len(values)),
+                                        y=values, color='r')
+            self.value_plotter.set_line('true', x=range(len(values)),
+                                        y=self.val_data.all_labels, color='b')
+
+            rospy.loginfo(self.problem.model.print_filters(sess))
+
 
 class ValueLearnerNode(object):
     def __init__(self):
@@ -170,7 +183,7 @@ class ValueLearnerNode(object):
             self.registry[a] = self.initialize_new(scope=scope)
 
         _, learner = self.registry[a]
-        learner.report_data(key=None, data=(s, v))
+        learner.report_state_value(state=s, value=v)
 
     def spin_embedding(self, event):
         now = event.current_real.to_sec()
@@ -185,7 +198,6 @@ if __name__ == '__main__':
 
     vln = ValueLearnerNode()
 
-    plt.ioff()
     plot_rate = rospy.get_param('~plot_rate', 10.0)
     try:
         vln.plot_group.spin(plot_rate)

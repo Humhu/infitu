@@ -156,5 +156,6 @@ class ImageSource(DataSource):
 
         if self.dim is None:
             self.dim = image.shape
+        image = image.astype(float) / 255.0
         self.buffer_data(t=msg.header.stamp.to_sec(),
                          data=image)

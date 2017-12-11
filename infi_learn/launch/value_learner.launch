@@ -14,8 +14,8 @@ clear_params="true">
                 image_mode: gray
                 topic: feature_image
 
-            belief:
-                topic: belief_state/stream_raw
+            <!-- vector:
+                topic: belief_state/stream_raw -->
 
         sars_frontend:
             sync_time_tolerance: 0.1
@@ -31,24 +31,29 @@ clear_params="true">
                     segment_length: 30
 
                 batch_size: 30
-                iters_per_spin: 10
+                iters_per_spin: 500
                 validation_period: 10
 
             network:
                 use_batch_norm: false
                 dropout_rate: 0.0
+                <!-- n_layers: 4
+                n_units: [64, 32, 16]
+                n_outputs: 1
+                final_rect: relu -->
+
                 image_subnet:
                     n_layers: 3
-                    n_filters: [8, 8, 4]
-                    filter_sizes: [4, 4, 4]
+                    n_filters: [8, 8, 8]
+                    filter_sizes: [5, 5, 5]
                     conv_strides: 1
-                    pool_sizes: [4, 4, 5]
-                    pool_strides: [2, 2, 3]
-                vector_subnet:
+                    pool_sizes: [5, 5, 5]
+                    pool_strides: 1
+                <!-- vector_subnet:
                     n_layers: 3
-                    n_units: [16, 16]
-                    n_outputs: 16
-                    final_rect: relu
+                    n_units: [32, 16]
+                    n_outputs: 8
+                    final_rect: relu -->
                 final_subnet:
                     n_layers: 3
                     n_units: [32, 16]

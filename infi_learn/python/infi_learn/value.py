@@ -37,6 +37,15 @@ class ValueNetwork(rrn.NetworkBase):
             s += '\n\t%s' % str(e)
         return s
 
+    def print_filters(self, sess):
+        s = 'L0 filters:'
+        filters = sess.run(self.params[0])
+        print filters.shape
+        for f in filters:
+            s += '\n\t%s' % str(f)
+        return s
+
+
     def initialize(self, sess):
         sess.run([p.initializer for p in self.params], feed_dict={})
 
@@ -148,7 +157,7 @@ class BanditValueProblem(object):
                                                       reuse=True)
 
         self.loss = tf.losses.mean_squared_error(labels=self.value_ph,
-                                                 predictions=self.net)
+                                                 predictions=self.net[-1])
 
         opt = tf.train.AdamOptimizer(learning_rate=1e-3)
         with tf.control_dependencies(ups):

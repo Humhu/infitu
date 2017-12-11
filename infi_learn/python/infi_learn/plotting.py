@@ -10,19 +10,24 @@ import numpy as np
 import threading
 from collections import deque
 
+
 class Plottable(object):
     """Interface for objects that need to be called from a main 
     GUI thread
     """
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, other=None):
+    def __init__(self, other=None, xlabel='', ylabel='',
+                 title=''):
 
         self.other = other
         if other is None:
             self.inited = threading.Event()
             self.fig = None
             self._ax = None
+            self.xlabel = xlabel
+            self.ylabel = ylabel
+            self.title = title
         else:
             self.inited = other.inited
             self.fig = None
@@ -48,11 +53,15 @@ class Plottable(object):
                 self.fig = plt.figure()
                 self._ax = plt.axes()
                 self.inited.set()
+                self._ax.set_xlabel(self.xlabel)
+                self._ax.set_ylabel(self.ylabel)
+                self._ax.set_title(self.title)
             else:
                 self.fig = self.other.fig
                 self._ax = self.other.ax
 
         self.fig.canvas.draw_idle()
+
 
 class BlockingRequest(object):
     def __init__(self, func):
@@ -68,9 +77,9 @@ class BlockingRequest(object):
         self.block.wait()
         return self.retval
 
+
 class PlottingGroup(object):
     def __init__(self):
-        # plt.ion()
         self.plots = []
         self.requests = deque()
 
@@ -103,12 +112,8 @@ class PlottingGroup(object):
 
 
 class LineSeriesPlotter(Plottable):
-    def __init__(self, xlabel='', ylabel='', title='',
-                 other=None):
-        Plottable.__init__(self, other)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.title(title)
+    def __init__(self, **kwargs):
+        Plottable.__init__(self, **kwargs)
         self.objects = {}
 
     def _check_in(self, x):
@@ -135,7 +140,7 @@ class LineSeriesPlotter(Plottable):
 
     def set_line(self, name, x, y, **kwargs):
         self.wait_for_init()
-        
+
         x = list(np.atleast_1d(x))
         y = list(np.atleast_1d(y))
 
@@ -150,14 +155,14 @@ class LineSeriesPlotter(Plottable):
 
     def _create_line(self, name, x, y, **kwargs):
         self.wait_for_init()
-        
+
         self.objects[name] = (self.ax.plot(x, y, label=name, **kwargs)[0],
                               x, y)
         self.ax.legend()
 
     def clear_line(self, name):
         self.wait_for_init()
-        
+
         if name in self.objects:
             self.objects[name][0].remove()
             self.objects.pop(name)
@@ -167,12 +172,8 @@ class LineSeriesPlotter(Plottable):
 
 
 class ImagePlotter(Plottable):
-    def __init__(self, xlabel='', ylabel='', title='',
-                 cm=cm.bwr, vmin=-1, vmax=1, other=None):
-        Plottable.__init__(self, other)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.title(title)
+    def __init__(self, cm=cm.bwr, vmin=-1, vmax=1, **kwargs):
+        Plottable.__init__(self, **kwargs)
         self.pim = None
         self.cm = cm
         self.vmin = vmin
@@ -180,7 +181,7 @@ class ImagePlotter(Plottable):
 
     def set_image(self, img, extents=None):
         self.wait_for_init()
-        
+
         if self.pim is None:
             self.pim = self.ax.imshow(img,
                                       origin='lower',
