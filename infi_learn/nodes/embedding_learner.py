@@ -49,42 +49,36 @@ class DataSources(object):
 
 class EmbeddingLearner(object):
     def __init__(self, model, holdout, loss,
-                 batch_num_sars=10, batch_num_terminal=10,
-                 iters_per_spin=10, validation_period=10):
+                 batch_size=10, iters_per_spin=10, validation_period=10):
         self.problem = rr.EmbeddingProblem(model=model, **loss)
 
-        self.training_base = adel.BasicDataset()
-        self.validation_base = adel.BasicDataset()
-        self.holdout = adel.HoldoutWrapper(training=self.training_base,
-                                           holdout=self.validation_base,
+        self.tr_base = adel.BasicDataset()
+        self.val_base = adel.BasicDataset()
+        self.holdout = adel.HoldoutWrapper(training=self.tr_base,
+                                           holdout=self.val_base,
                                            **holdout)
 
-        self.training_sampler = adel.DatasetSampler(base=self.training_base,
-                                                    method='uniform')
-        self.validation_sampler = adel.DatasetSampler(base=self.validation_base,
-                                                      method='uniform')
-        self.training_sampled_sars = adel.SARSDatasetTranslator(
-            base=self.training_sampler)
-        self.validation_sampled_sars = adel.SARSDatasetTranslator(
-            base=self.validation_sampler)
-        self.training_sars = adel.SARSDatasetTranslator(
-            base=self.training_base)
-        self.validation_sars = adel.SARSDatasetTranslator(
-            base=self.validation_base)
+        self.tr_sampler = adel.DatasetSampler(base=self.tr_base,
+                                              method='uniform')
+        self.tr_sampled = adel.LabeledDatasetTranslator(base=self.tr_sampler)
+        self.val_sampler = adel.DatasetSampler(base=self.val_base,
+                                               method='uniform')
+        self.val_sampled = adel.LabeledDatasetTranslator(base=self.val_sampler)
+
+        self.tr_data = adel.LabeledDatasetTranslator(base=self.tr_base)
+        self.val_data = adel.LabeledDatasetTranslator(base=self.val_base)
+        self.reporter = adel.LabeledDatasetTranslator(base=self.holdout)
 
         self.iters_per_spin = iters_per_spin
         self.validation_period = validation_period
-        self.sars_k = batch_num_sars
-        self.term_k = batch_num_terminal
+        self.batch_size = batch_size
 
         self.spin_counter = 0
 
         self.error_plotter = rr.LineSeriesPlotter(title='Embedding losses over time %s' % model.scope,
                                                   xlabel='Spin iter',
                                                   ylabel='Embedding loss')
-        self.embed_plotter = rr.LineSeriesPlotter(title='Validation embeddings %s' % model.scope,
-                                                  xlabel='Embedding dimension 1',
-                                                  ylabel='Embedding dimension 2')
+        self.embed_plotter = rr.ScatterPlotter(title='Validation embeddings %s' % model.scope)
 
     def initialize(self, sess):
         self.problem.initialize(sess)
@@ -93,34 +87,32 @@ class EmbeddingLearner(object):
     def scope(self):
         return self.problem.model.scope
 
-    def report_data(self, key, data):
-        self.holdout.report_data(key=key, data=data)
+    def report_state_value(self, state, value):
+        self.holdout.reporter.report_label(x=state, y=value)
 
     def get_plottables(self):
         return [self.error_plotter, self.embed_plotter]
 
     def get_embedding(self, sess, on_training_data=True):
         if on_training_data:
-            data = self.training_sars
+            data = self.tr_data
         else:
-            data = self.validation_sars
+            data = self.val_data
         return self.problem.run_embedding(sess=sess, data=data)
 
     def spin(self, sess):
-        rospy.loginfo('Embedding %s has %d/%d (act/term) training, %d/%d validation',
-                      self.scope, self.training_sars.num_sars, self.training_sars.num_terminals,
-                      self.validation_sars.num_sars, self.validation_sars.num_terminals)
+        rospy.loginfo('Embedding %s has %d/%d (train/validation) datapoints',
+                      self.scope, self.tr_data.num_data, self.val_data.num_data)
 
         train_loss = None
         for _ in range(self.iters_per_spin):
-            if self.training_sars.num_sars < self.sars_k or self.training_sars.num_terminals < self.term_k:
+            if self.tr_data.num_data < self.batch_size:
                 rospy.loginfo('Not enough data to train, skipping...')
                 break
 
-            self.training_sampler.sample_data(key=True, k=self.sars_k)
-            self.training_sampler.sample_data(key=False, k=self.term_k)
-            train_loss = self.problem.run_training(sess=sess,
-                                                   data=self.training_sampled_sars)
+            self.tr_sampler.sample_data(key=None, k=self.batch_size)
+            train_loss = self.problem.run_training(
+                sess=sess, data=self.tr_sampled)
 
         self.spin_counter += 1
         if train_loss is None:
@@ -130,32 +122,31 @@ class EmbeddingLearner(object):
         self.error_plotter.add_line('training', self.spin_counter, train_loss)
 
         if self.spin_counter % self.validation_period == 0:
-            if self.validation_sars.num_sars < self.sars_k or self.validation_sars.num_terminals < self.term_k:
+            if self.val_data.num_data < self.batch_size:
                 return
             val_losses = []
-            for _ in range(10):  # HACK
-                self.validation_sampler.sample_data(key=True, k=self.sars_k)
-                self.validation_sampler.sample_data(key=False, k=self.term_k)
+            # HACK NOTE Can't compute loss for the whole validation dataset
+            for _ in range(10):
+                self.val_sampler.sample_data(key=None, k=self.batch_size)
                 vl = self.problem.run_loss(sess=sess,
-                                           data=self.validation_sampled_sars)
+                                           data=self.val_sampled)
                 val_losses.append(vl)
             mean_val_loss = np.mean(val_losses)
             rospy.loginfo('Validation loss: %f ' % mean_val_loss)
             self.error_plotter.add_line(
                 'validation', self.spin_counter, mean_val_loss)
-            val_embed, val_labels = self.problem.run_embedding(sess=sess,
-                                                               data=self.validation_sars)
+            val_embed = self.problem.run_embedding(sess=sess, data=self.val_data)
+            val_labels = self.val_data.all_labels
+
             pos_embeds = val_embed[val_labels]
             neg_embeds = val_embed[np.logical_not(val_labels)]
-            self.embed_plotter.set_line('val+', pos_embeds[:, 0], pos_embeds[:, 1],
+            self.embed_plotter.set_scatter('val', pos_embeds[:, 0], pos_embeds[:, 1], val_labels,
                                         marker='o', markerfacecolor='none', linestyle='none')
-            self.embed_plotter.set_line('val-', neg_embeds[:, 0], neg_embeds[:, 1],
-                                        marker='x', linestyle='none')
 
 
 class ClassifierLearner(object):
     def __init__(self, embedding, classifier, holdout, optimizer,
-                 visualize=True, vis_res=10):
+                 visualize=True, vis_res=10, min_value=5.0):
         self.classifier = rr.ParzenNeighborsClassifier(**classifier)
         self.embedding = embedding
         self.optimizer = optim.parse_optimizers(**optimizer)
@@ -328,14 +319,14 @@ class EmbeddingLearnerNode(object):
 
         return model, learner, classifier
 
-    def data_callback(self, key, payload):
-        action = payload[1]
-        if action not in self.registry:
+    def data_callback(self, is_active, sars):
+        s, a, r, sn = sars
+        if a not in self.registry:
             scope = 'embedding_%d' % len(self.registry)
-            self.registry[action] = self.initialize_new(scope=scope)
+            self.registry[a] = self.initialize_new(scope=scope)
 
-        _, learner, _ = self.registry[action]
-        learner.report_data(key=key, data=payload)
+        _, learner, _ = self.registry[a]
+        learner.report_state_value(state=s, value=r)
 
     def spin_embedding(self, event):
         now = event.current_real.to_sec()

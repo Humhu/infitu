@@ -139,30 +139,6 @@ class EmbeddingNetwork(rrn.NetworkBase):
             feed[self.vector_ph] = rru.shape_data_vec(vecs)
         return self.net[-1]
 
-    def embed_dataset(self, data, feed):
-        """Populates a feed dict with all states from a dataset and returns 
-        ops to perform an embedding using this model.
-
-        Parameters
-        ----------
-        model : EmbeddingNetwork
-            The model to use
-        data : adel.SARSDataset
-            Dataset to fully embed. Assumes states are (belief, img) tuples
-        feed : dict
-            Tensorflow feed dict to add fields to
-
-        Returns
-        -------
-        ops : tensorflow operation
-            Operation to run to get embeddings
-        labels : list of bools
-        """
-        states = data.all_states + data.all_terminal_states
-        embed = self.get_embed_ops(states=states, feed=feed)
-        labels = [True] * data.num_sars + [False] * data.num_terminals
-        return embed, np.array(labels)
-
 
 class EmbeddingProblem(object):
     """Wraps an embedding network and learning optimization. Provides methods for
@@ -185,6 +161,13 @@ class EmbeddingProblem(object):
         self.n_image_ph = model.make_img_input(name='n_image')
         self.n_belief_ph = model.make_vec_input(name='n_belief')
 
+        self.p_labels_ph = tf.placeholder(tf.float32,
+                                          name='%s/p_labels' % self.model.scope,
+                                          shape=[None,1])
+        self.n_labels_ph = tf.placeholder(tf.float32,
+                                          name='%s/n_labels' % self.model.scope,
+                                          shape=[None,1])
+
         self.p_net, params, state, ups = model.make_net(img_in=self.p_image_ph,
                                                         vec_in=self.p_belief_ph,
                                                         reuse=True)
@@ -193,16 +176,19 @@ class EmbeddingProblem(object):
                                     reuse=True)[0]
         self.state = state
 
-        # Loss function penalty for different classes being near each other
-        delta = self.p_net[-1] - self.n_net[-1]
-        delta_sq = tf.reduce_sum(delta * delta, axis=-1)
+        # Loss function penalty for different labels being near each other
+        x_delta = self.p_net[-1] - self.n_net[-1]
+        x_delta_sq = tf.reduce_sum(x_delta * x_delta, axis=-1)
+        y_delta = self.p_labels_ph - self.n_labels_ph
+        y_delta_sq = y_delta * y_delta
+
+        self.sep_dist = separation_distance
 
         # Squared exponential with sep_dist as bandwidth
-        self.sep_dist = separation_distance
         # self.loss = tf.reduce_mean(-tf.exp(delta_sq / self.sep_dist))
 
         # Huber with sep_dist as horizontal offset
-        self.loss = tf.losses.huber_loss(labels=-delta_sq + self.sep_dist,
+        self.loss = tf.losses.huber_loss(labels=-x_delta_sq + y_delta_sq * self.sep_dist,
                                          predictions=[0])
 
         opt = tf.train.AdamOptimizer(learning_rate=1e-3)
@@ -227,27 +213,23 @@ class EmbeddingProblem(object):
 
     def run_embedding(self, sess, data):
         feed = self.model.init_feed(training=False)
-        ops, labels = self.model.embed_dataset(data=data, feed=feed)
-        embed = sess.run(ops, feed_dict=feed)
-        return embed, labels
+        ops = self.model.get_embed_ops(data=data.all_inputs, feed=feed)
+        return sess.run(ops, feed_dict=feed)
 
     def _fill_feed(self, data, feed):
         """Helper to create class permutations and populate
         a feed dict.
         """
-        sinds = range(data.num_sars)
-        stinds = range(data.num_terminals)
-        neg_combos = list(itertools.product(sinds, stinds))
-        neg_i, neg_is = zip(*neg_combos)
+        state_combos = list(itertools.product(data.all_data, data.all_data))
+        p_states, n_states = zip(*state_combos)
 
-        bel, img = self.model.parse_states([data.all_states[i] for i in neg_i])
-        bel_t, img_t = self.model.parse_states(
-            [data.all_terminal_states[i] for i in neg_is])
+        p_bel, p_img = self.model.parse_states(p_states)
+        n_bel, n_img = self.model.parse_states(n_states)
 
         if self.model.using_vector:
-            feed[self.p_belief_ph] = bel
-            feed[self.n_belief_ph] = bel_t
+            feed[self.p_belief_ph] = p_bel
+            feed[self.n_belief_ph] = n_bel
 
         if self.model.using_image:
-            feed[self.p_image_ph] = img
-            feed[self.n_image_ph] = img_t
+            feed[self.p_image_ph] = p_img
+            feed[self.n_image_ph] = n_img

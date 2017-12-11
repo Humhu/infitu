@@ -170,6 +170,50 @@ class LineSeriesPlotter(Plottable):
             self.ax.relim()
             self.ax.autoscale_view(True, True, True)
 
+class ScatterPlotter(Plottable):
+    def __init__(self, cm=cm.bwr, **kwargs):
+        Plottable.__init__(self, **kwargs)
+        self.objects = {}
+        self.cm = cm
+
+    def add_scatter(self, name, x, y, c, **kwargs):
+        self.wait_for_init()
+
+        x = list(np.atleast_1d(x))
+        y = list(np.atleast_1d(y))
+        c = list(np.atleast_1d(c))
+
+        if name not in self.objects:
+            self._create_scatter(name, x, y, c, **kwargs)
+        else:
+            lh, xs, ys, cs = self.objects[name]
+            xs.extend(x)
+            ys.extend(y)
+            cs.extend(c)
+            self._create_scatter(name, xs, ys, cs, **kwargs)
+
+    def set_scatter(self, name, x, y, c, **kwargs):
+        self.wait_for_init()
+
+        x = list(np.atleast_1d(x))
+        y = list(np.atleast_1d(y))
+        c = list(np.atleast_1d(c))
+        self._create_scatter(name, x, y, c, **kwargs)
+
+    def _create_scatter(self, name, x, y, c, **kwargs):
+        self.wait_for_init()
+
+        self.objects[name] = (self.ax.scatter(x, y, c=self.cm(c), label=name, **kwargs),
+                              x, y, c)
+
+    def clear_scatter(self, name):
+        self.wait_for_init()
+
+        if name in self.objects:
+            self.objects[name][0].remove()
+            self.objects.pop(name)
+            self.ax.relim()
+            self.ax.autoscale_view(True, True, True)
 
 class ImagePlotter(Plottable):
     def __init__(self, cm=cm.bwr, vmin=-1, vmax=1, **kwargs):
