@@ -10,6 +10,7 @@ import dill
 from itertools import izip
 import matplotlib.pyplot as plt
 
+
 class DataSources(object):
     def __init__(self, image=None, belief=None, dt_tol=0.1):
         self.use_image = image is not None
@@ -60,8 +61,12 @@ class EmbeddingLearner(object):
 
         self.training_sampler = adel.DatasetSampler(base=self.training_base,
                                                     method='uniform')
+        self.validation_sampler = adel.DatasetSampler(base=self.validation_base,
+                                                      method='uniform')
         self.training_sampled_sars = adel.SARSDatasetTranslator(
             base=self.training_sampler)
+        self.validation_sampled_sars = adel.SARSDatasetTranslator(
+            base=self.validation_sampler)
         self.training_sars = adel.SARSDatasetTranslator(
             base=self.training_base)
         self.validation_sars = adel.SARSDatasetTranslator(
@@ -125,11 +130,19 @@ class EmbeddingLearner(object):
         self.error_plotter.add_line('training', self.spin_counter, train_loss)
 
         if self.spin_counter % self.validation_period == 0:
-            val_loss = self.problem.run_loss(sess=sess,
-                                             data=self.validation_sars)
-            rospy.loginfo('Validation loss: %f ' % val_loss)
+            if self.validation_sars.num_sars < self.sars_k or self.validation_sars.num_terminals < self.term_k:
+                return
+            val_losses = []
+            for _ in range(10):  # HACK
+                self.validation_sampler.sample_data(key=True, k=self.sars_k)
+                self.validation_sampler.sample_data(key=False, k=self.term_k)
+                vl = self.problem.run_loss(sess=sess,
+                                           data=self.validation_sampled_sars)
+                val_losses.append(vl)
+            mean_val_loss = np.mean(val_losses)
+            rospy.loginfo('Validation loss: %f ' % mean_val_loss)
             self.error_plotter.add_line(
-                'validation', self.spin_counter, val_loss)
+                'validation', self.spin_counter, mean_val_loss)
             val_embed, val_labels = self.problem.run_embedding(sess=sess,
                                                                data=self.validation_sars)
             pos_embeds = val_embed[val_labels]
@@ -150,7 +163,7 @@ class ClassifierLearner(object):
         self.training_base = adel.BasicDataset()
         self.tuning_base = adel.BasicDataset()
         self.validation_base = adel.BasicDataset()
-        
+
         self.holdout = adel.HoldoutWrapper(training=self.training_base,
                                            holdout=self.tuning_base,
                                            **holdout)
@@ -166,7 +179,8 @@ class ClassifierLearner(object):
 
         if self.visualize:
             # TODO Put scope in name
-            self.heat_plotter = rr.ImagePlotter(vmin=0, vmax=1, title='Classifier')
+            self.heat_plotter = rr.ImagePlotter(
+                vmin=0, vmax=1, title='Classifier')
             self.point_plotter = rr.LineSeriesPlotter(other=self.heat_plotter)
 
     def get_plottables(self):
@@ -229,7 +243,7 @@ class ClassifierLearner(object):
                                     extents=(mins[0], maxs[0], mins[1], maxs[1]))
         if len(pos) > 0:
             self.point_plotter.set_line(name='pos', x=pos[:, 0], y=pos[:, 1],
-                                        color='k', marker='o', markerfacecolor='none', 
+                                        color='k', marker='o', markerfacecolor='none',
                                         linestyle='none')
         if len(neg) > 0:
             self.point_plotter.set_line(name='neg', x=neg[:, 0], y=neg[:, 1],
@@ -242,9 +256,23 @@ class ClassifierLearner(object):
         rospy.loginfo('Classifier %s params: %s', self.embedding.scope,
                       self.classifier.print_params())
 
+        tr_x = self.tuning_binary.all_positives + self.tuning_binary.all_negatives
+        tr_y = [True] * self.tuning_binary.num_positives + \
+            [False] * self.tuning_binary.num_negatives
+        tr_loss = rr.compute_classification_loss(classifier=self.classifier,
+                                                 x=tr_x, y=tr_y)
+        val_x = self.validation_binary.all_positives + \
+            self.validation_binary.all_negatives
+        val_y = [True] * self.training_binary.num_positives \
+            + [False] * self.training_binary.num_negatives
+        val_loss = rr.compute_classification_loss(classifier=self.classifier,
+                                                  x=val_x, y=val_y)
+        rospy.loginfo('Classifier %s training loss: %f validation loss: %f',
+                      self.embedding.scope, tr_loss, val_loss)
+
     def spin(self, sess):
         self.update_dataset(sess=sess)
-        
+
         if self.training_binary.num_data > 0:
             self.update_classifier()
 
@@ -289,7 +317,7 @@ class EmbeddingLearnerNode(object):
                                        **self.learner_args)
             classifier = ClassifierLearner(embedding=learner,
                                            **self.classifier_args)
-            
+
             # Initialize tensorflow variables
             model.initialize(self.sess)
             learner.initialize(self.sess)
@@ -321,12 +349,12 @@ class EmbeddingLearnerNode(object):
             model, learner, classifier = val
             classifier.spin(sess=self.sess)
 
+
 if __name__ == '__main__':
     rospy.init_node('image_embedding_learner')
 
     eln = EmbeddingLearnerNode()
-    
-    plt.ioff()
+
     plot_rate = rospy.get_param('~plot_rate', 10.0)
     try:
         eln.plot_group.spin(plot_rate)

@@ -21,7 +21,7 @@ def rbf_window(x, xq, bw):
     return np.exp(-ips * 0.5)
 
 
-def compute_classification_loss(classifier, x, y, params):
+def compute_classification_loss(classifier, x, y, params=None):
     """Computes the classification loss of a classifier with the given
     log hyperparameters on a dataset (x,y)
     """

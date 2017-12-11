@@ -1,5 +1,13 @@
 <launch>
 
+<arg name="replay" default="false"/>
+<arg name="replay_path" default=""/>
+
+<param name="/use_sim_time" value="true" if="$(arg replay)"/>
+<node pkg="rosbag" type="play" name="player" 
+ args="$(arg replay_path) --clock --delay=3"/>
+
+
 <node pkg="infi_learn" type="embedding_learner.py" name="embedding" output="screen"
 clear_params="true">
     <remap from="reward" to="ape/reward"/>
@@ -36,7 +44,7 @@ clear_params="true">
 
                 batch_num_sars: 10
                 batch_num_terminal: 10
-                iters_per_spin: 10
+                iters_per_spin: 100
                 validation_period: 10
 
             network:
@@ -44,19 +52,24 @@ clear_params="true">
                 dropout_rate: 0.0
                 image_subnet:
                     n_layers: 3
-                    n_filters: [8, 8, 4]
-                    filter_sizes: [4, 4, 4]
+                    n_filters: [8, 8, 8]
+                    filter_sizes: [3, 3, 3]
                     conv_strides: 1
-                    pool_sizes: [4, 4, 5]
-                    pool_strides: [2, 2, 3]
+                    pool_sizes: [3, 3, 3]
+                    pool_strides: 2
+                squeeze_subnet:
+                    n_layers: 2
+                    n_units: [64]
+                    n_outputs: 16
+                    final_rect: relu
                 vector_subnet:
                     n_layers: 3
                     n_units: [16, 16]
                     n_outputs: 16
                     final_rect: relu
                 final_subnet:
-                    n_layers: 3
-                    n_units: [32, 16]
+                    n_layers: 2
+                    n_units: [16]
                     n_outputs: 2
                     final_rect: tanh
 
@@ -75,7 +88,7 @@ clear_params="true">
             optimizer:
                 type: bfgs
                 mode: min
-                num_restarts: 2
+                num_restarts: 3
                 lower_bounds: -6
                 upper_bounds: 3
     </rosparam>

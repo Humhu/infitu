@@ -1,0 +1,11 @@
+<launch>
+
+<node pkg="rosbag" type="record" name="bagger" output="screen" 
+args="-O /tmp/lo_features.bag 
+    feature_image
+    belief_state/stream_raw 
+    ape/reward
+    lo_interface/normalized_parameters
+    terminator/breaks"/>
+
+</launch>
