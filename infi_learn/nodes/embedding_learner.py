@@ -80,6 +80,10 @@ class EmbeddingLearner(object):
                                                   ylabel='Embedding loss')
         self.embed_plotter = rr.ScatterPlotter(
             title='Validation embeddings %s' % model.scope)
+        
+        self.filters = model.params[0]
+        n_filters = int(self.filters.shape[-1])
+        self.filter_plotter = rr.FilterPlotter(n_filters)
 
     def initialize(self, sess):
         self.problem.initialize(sess)
@@ -92,7 +96,7 @@ class EmbeddingLearner(object):
         self.reporter.report_label(x=state, y=value)
 
     def get_plottables(self):
-        return [self.error_plotter, self.embed_plotter]
+        return [self.error_plotter, self.embed_plotter, self.filter_plotter]
 
     def get_embedding(self, sess, on_training_data=True):
         if on_training_data:
@@ -133,6 +137,11 @@ class EmbeddingLearner(object):
         self.error_plotter.add_line('training', self.spin_counter, train_loss)
 
         if self.spin_counter % self.validation_period == 0:
+
+            fil_vals = np.squeeze(sess.run(self.filters))
+            fil_vals = np.rollaxis(fil_vals, -1)
+            self.filter_plotter.set_filters(fil_vals)
+
             if self.val_data.num_data < self.batch_size:
                 return
             val_losses = []
@@ -146,12 +155,12 @@ class EmbeddingLearner(object):
             rospy.loginfo('Validation loss: %f ' % mean_val_loss)
             self.error_plotter.add_line(
                 'validation', self.spin_counter, mean_val_loss)
-            val_embed, val_labels = self.get_embedding(sess=sess, 
-            on_training_data=False)
-            self.embed_plotter.set_scatter('val', 
-            x=val_embed[:, 0], 
-            y=val_embed[:, 1], 
-            c=val_labels,
+            val_embed, val_labels = self.get_embedding(sess=sess,
+                                                       on_training_data=False)
+            self.embed_plotter.set_scatter('val',
+                                           x=val_embed[:, 0],
+                                           y=val_embed[:, 1],
+                                           c=val_labels,
                                            marker='o')
 
 

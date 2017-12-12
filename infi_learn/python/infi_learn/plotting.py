@@ -1,6 +1,7 @@
 """Various plotting tools
 """
 import time
+import math
 import abc
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -67,8 +68,8 @@ class MultiPlottable(object):
     """
     def __init__(self, n_i, n_j):
         self.fig = None
-        self.n_i = n_i
-        self.n_j = n_j
+        self.n_i = int(n_i)
+        self.n_j = int(n_j)
         self.inited = threading.Event()
         self._axes = None
 
@@ -81,7 +82,7 @@ class MultiPlottable(object):
         """
         if self.fig is None:
             self.fig = plt.figure()
-            self._axes = plt.subplots(nrows=self.n_j, ncols=self.n_i)
+            self._axes = self.fig.subplots(nrows=self.n_j, ncols=self.n_i).flatten()
             self.inited.set()
 
         self.fig.canvas.draw_idle()
@@ -98,6 +99,10 @@ class MultiPlottableHandle(object):
     def ax(self):
         self.base.wait_for_init()
         return self.base._axes[self.ind]
+
+    @property
+    def inited(self):
+        return self.base.inited
 
     @property
     def fig(self):
@@ -132,8 +137,9 @@ class PlottingGroup(object):
         return req.wait()
 
     def add_plottable(self, p):
-        if not isinstance(p, Plottable):
-            raise ValueError('Must implement Plottable interface')
+        # TODO Add back in after Plottable is an interface
+        # if not isinstance(p, Plottable):
+            # raise ValueError('Must implement Plottable interface')
         self.plots.append(p)
 
     def draw_all(self):
@@ -281,8 +287,23 @@ class ImagePlotter(Plottable):
                                       vmax=self.vmax)
         else:
             self.pim.set_data(img)
-            self.pim.set_extent(extents)
+            if extents is not None:
+                self.pim.set_extent(extents)
 
-# class FilterPlotter(object):
-#     def __init__(self, filters):
-#         self.base = MultiPlottable()
+class FilterPlotter(object):
+    def __init__(self, N):
+        s = math.ceil(math.sqrt(float(N)))
+        self.base = MultiPlottable(s, s)
+        self.plotters = []
+        for i in range(N):
+            p = ImagePlotter(other=self.base.get_axis_handle(i))
+            self.plotters.append(p)
+
+    def set_filters(self, filters):
+        for i, p in enumerate(self.plotters):
+            p.set_image(filters[i])
+
+    def draw(self):
+        self.base.draw()
+        for p in self.plotters:
+            p.draw()
