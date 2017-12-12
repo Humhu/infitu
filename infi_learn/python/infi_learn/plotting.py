@@ -268,17 +268,20 @@ class ScatterPlotter(Plottable):
             self.ax.autoscale_view(True, True, True)
 
 class ImagePlotter(Plottable):
-    def __init__(self, cm=cm.bwr, vmin=-1, vmax=1, **kwargs):
+    def __init__(self, cm=cm.bwr, vmin=-1, vmax=1, noticks=True, **kwargs):
         Plottable.__init__(self, **kwargs)
         self.pim = None
         self.cm = cm
         self.vmin = vmin
         self.vmax = vmax
+        self.noticks = noticks
 
     def set_image(self, img, extents=None):
         self.wait_for_init()
 
         if self.pim is None:
+            if self.noticks:
+                self.ax.axis('off')
             self.pim = self.ax.imshow(img,
                                       origin='lower',
                                       extent=extents,

@@ -80,7 +80,7 @@ class EmbeddingLearner(object):
                                                   ylabel='Embedding loss')
         self.embed_plotter = rr.ScatterPlotter(
             title='Validation embeddings %s' % model.scope)
-        
+
         self.filters = model.params[0]
         n_filters = int(self.filters.shape[-1])
         self.filter_plotter = rr.FilterPlotter(n_filters)
@@ -186,6 +186,7 @@ class ClassifierLearner(object):
             self.validation_base)
 
         self.min_value = min_value
+        self.update_counter = 0
 
         self.visualize = visualize
         self.vis_res = vis_res
@@ -195,10 +196,17 @@ class ClassifierLearner(object):
             self.heat_plotter = rr.ImagePlotter(
                 vmin=0, vmax=1, title='Classifier')
             self.point_plotter = rr.LineSeriesPlotter(other=self.heat_plotter)
+            self.error_plotter = rr.LineSeriesPlotter(title='Logistic losses over time %s'
+                                                      % self.embedding.scope,
+                                                      xlabel='Spin iter',
+                                                      ylabel='Logistic loss')
+            self.roc_plotter = rr.LineSeriesPlotter(title='ROC for %s' % self.embedding.scope,
+                                                    xlabel='False positive rate',
+                                                    ylabel='True positive rate')
 
     def get_plottables(self):
         if self.visualize:
-            return [self.heat_plotter, self.point_plotter]
+            return [self.heat_plotter, self.point_plotter, self.error_plotter, self.roc_plotter]
         else:
             return []
 
@@ -221,6 +229,7 @@ class ClassifierLearner(object):
             else:
                 self.validation_binary.report_negative(x)
 
+        self.update_counter += 1
         rospy.loginfo('Classifier %s has %d/%d (pos/neg) training, %d/%d tuning, %d/%d validation',
                       self.embedding.scope,
                       self.training_binary.num_positives, self.training_binary.num_negatives,
@@ -249,8 +258,8 @@ class ClassifierLearner(object):
         vis_pts = np.meshgrid(*vis_lims)
         vis_x = np.vstack([vi.flatten() for vi in vis_pts]).T
 
-        probs = self.classifier.query(vis_x)
-        pimg = np.reshape(probs, (self.vis_res, self.vis_res))
+        vis_probs = self.classifier.query(vis_x)
+        pimg = np.reshape(vis_probs, (self.vis_res, self.vis_res))
 
         self.heat_plotter.set_image(img=pimg,
                                     extents=(mins[0], maxs[0], mins[1], maxs[1]))
@@ -261,6 +270,14 @@ class ClassifierLearner(object):
         if len(neg) > 0:
             self.point_plotter.set_line(name='neg', x=neg[:, 0], y=neg[:, 1],
                                         color='k', marker='x', linestyle='none')
+
+        # Display ROC
+        all_probs = self.classifier.query(all_data)
+        all_labels = [True] * data.num_positives + [False] * data.num_negatives
+        tpr, fpr = rr.compute_threshold_roc(probs=all_probs, labels=all_labels)
+        self.roc_plotter.set_line(name='ROC', x=fpr, y=tpr)
+        auc = rr.compute_auc(tpr, fpr)
+        rospy.loginfo('Classifier %s AUC: %f', self.embedding.scope, auc)
 
     def optimize(self):
         rr.optimize_parzen_neighbors(classifier=self.classifier,
@@ -283,6 +300,10 @@ class ClassifierLearner(object):
                                                   x=val_x, y=val_y)
         rospy.loginfo('Classifier %s training loss: %f validation loss: %f',
                       self.embedding.scope, tr_loss, val_loss)
+
+        self.error_plotter.add_line('training', self.update_counter, tr_loss)
+        self.error_plotter.add_line(
+            'validation', self.update_counter, val_loss)
 
     def spin(self, sess):
         self.update_dataset(sess=sess)

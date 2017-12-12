@@ -4,9 +4,36 @@ import math
 import numpy as np
 import scipy.stats as ss
 import scipy.spatial.distance as ssd
+import scipy.integrate as si
+
 import sklearn.neighbors as skn
 from itertools import izip
 
+def compute_auc(tprs, fprs):
+    # NOTE Can be negative if fprs are sorted descending
+    return abs(si.trapz(y=tprs, x=fprs))
+
+def compute_threshold_roc(probs, labels, n=30):
+    """Computes a receiver operating characteristic (ROC) curve displaying true positive rate
+    versus false positive rate over a range of probability thresholds. 
+    """
+    probs = np.asarray(probs)
+    labels = np.asarray(labels, dtype=bool)
+
+    thresholds = np.linspace(0, 1.0, num=n)
+    num_positives = float(np.sum(labels))
+    num_negatives = len(labels) - num_positives
+    tprs = []
+    fprs = []
+    for t in thresholds:
+        preds = probs > t
+        true_pos = np.logical_and(preds, labels)
+        false_pos = np.logical_and(preds, np.logical_not(labels))
+        tpr = np.sum(true_pos) / num_positives
+        fpr = np.sum(false_pos) / num_negatives
+        tprs.append(tpr)
+        fprs.append(fpr)
+    return tprs, fprs
 
 def rbf_window(x, xq, bw):
     """A vectorized radial basis function kernel
@@ -51,7 +78,7 @@ def compute_classification_loss(classifier, x, y, mode='logistic', balance=True,
         return (pos_loss + neg_loss) * 0.5
 
     y = np.asarray(y, dtype=float) * 2 - 1.0
-    pp = classifier.query(x)
+    pp = classifier.query(x) * 2 - 1.0
 
     if mode == 'mse':
         err = y - pp
@@ -120,7 +147,7 @@ class ParzenNeighborsClassifier(object):
 
     @property
     def log_params(self):
-        p = np.hstack([self.epsilon, self.radius, self.bw])
+        p = np.hstack([self.epsilon, self.bw])
         return np.log(p)
 
     @log_params.setter
@@ -130,8 +157,8 @@ class ParzenNeighborsClassifier(object):
         """
         params = np.exp(p)
         self.epsilon = params[0]
-        self.radius = params[1]
-        self.bw = params[2:]
+        self.bw = params[1:]
+        self.radius = 3 * max(self.bw)
 
     def print_params(self):
         return 'epsilon: %f radius: %f bandwidth: %s ' \
