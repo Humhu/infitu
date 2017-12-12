@@ -1,5 +1,6 @@
 """Classes for using X to predict success
 """
+import math
 import numpy as np
 import scipy.stats as ss
 import scipy.spatial.distance as ssd
@@ -21,14 +22,44 @@ def rbf_window(x, xq, bw):
     return np.exp(-ips * 0.5)
 
 
-def compute_classification_loss(classifier, x, y, params=None):
+def compute_classification_loss(classifier, x, y, mode='logistic', balance=True, params=None):
     """Computes the classification loss of a classifier with the given
     log hyperparameters on a dataset (x,y)
     """
     if params is not None:
         classifier.log_params = params
+
+    if len(x) == 0:
+        return 0
+
+    x = np.asarray(x)
+    classes = np.asarray(y, dtype=bool)
+    if balance:
+        pos_loss = compute_classification_loss(classifier,
+                                                 x=x[classes],
+                                                 y=classes[classes],
+                                                 mode=mode,
+                                                 balance=False,
+                                                 params=params)
+        n_classes = np.logical_not(classes)
+        neg_loss = compute_classification_loss(classifier,
+                                                 x=x[n_classes],
+                                                 y=classes[n_classes],
+                                                 mode=mode,
+                                                 balance=False,
+                                                 params=params)
+        return (pos_loss + neg_loss) * 0.5
+
+    y = np.asarray(y, dtype=float) * 2 - 1.0
     pp = classifier.query(x)
-    return np.mean(np.abs(y - pp))
+
+    if mode == 'mse':
+        err = y - pp
+        return np.mean(err * err)
+    elif mode == 'logistic':
+        return np.mean(np.log(1 + np.exp(-y * pp))) / math.log(2)
+    else:
+        raise ValueError('Unrecognized classification loss: %s' % mode)
 
 
 def regularized_parzen_estimate(xq, x, y, window, epsilon=0):
@@ -66,7 +97,7 @@ class ParzenNeighborsClassifier(object):
 
     def __init__(self, bandwidth, epsilon, radius=None, window=None):
         self.nn_model = skn.NearestNeighbors()
-        
+
         if np.iterable(bandwidth):
             self.bw = [float(bi) for bi in bandwidth]
         else:
@@ -103,8 +134,8 @@ class ParzenNeighborsClassifier(object):
         self.bw = params[2:]
 
     def print_params(self):
-        return 'Bandwidth: %s epsilon: %f radius: %f' \
-            % (str(self.bw), self.epsilon, self.radius)
+        return 'epsilon: %f radius: %f bandwidth: %s ' \
+            % (self.epsilon, self.radius, str(self.bw))
 
     def update_model(self, X, labels):
         """Regenerates the dataset embedding and retrains the

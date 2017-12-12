@@ -173,11 +173,13 @@ class ValueLearnerNode(object):
 
         return model, learner
 
-    def data_callback(self, is_active, savs):
-        if not is_active:
-            return
+    def data_callback(self, is_active, payload):
+        if is_active:
+            s, a, v, sn = payload
+        else:
+            s, a = payload
+            r = 0
 
-        s, a, v, sn = savs
         if a not in self.registry:
             scope = 'value_%d' % len(self.registry)
             self.registry[a] = self.initialize_new(scope=scope)

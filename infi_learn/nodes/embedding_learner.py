@@ -78,7 +78,8 @@ class EmbeddingLearner(object):
         self.error_plotter = rr.LineSeriesPlotter(title='Embedding losses over time %s' % model.scope,
                                                   xlabel='Spin iter',
                                                   ylabel='Embedding loss')
-        self.embed_plotter = rr.ScatterPlotter(title='Validation embeddings %s' % model.scope)
+        self.embed_plotter = rr.ScatterPlotter(
+            title='Validation embeddings %s' % model.scope)
 
     def initialize(self, sess):
         self.problem.initialize(sess)
@@ -88,17 +89,27 @@ class EmbeddingLearner(object):
         return self.problem.model.scope
 
     def report_state_value(self, state, value):
-        self.holdout.reporter.report_label(x=state, y=value)
+        self.reporter.report_label(x=state, y=value)
 
     def get_plottables(self):
         return [self.error_plotter, self.embed_plotter]
 
     def get_embedding(self, sess, on_training_data=True):
         if on_training_data:
-            data = self.tr_data
+            data = self.tr_base
         else:
-            data = self.val_data
-        return self.problem.run_embedding(sess=sess, data=data)
+            data = self.val_base
+
+        chunker = adel.DatasetChunker(base=data, block_size=500)  # TODO
+        x = [self.problem.run_embedding(sess=sess, data=adel.LabeledDatasetTranslator(chunk))
+             for chunk in chunker.iter_subdata(key=None)]  # HACK key
+        if len(x) == 0:
+            x = []
+        else:
+            x = np.vstack(x)
+
+        y = adel.LabeledDatasetTranslator(data).all_labels
+        return x, y
 
     def spin(self, sess):
         rospy.loginfo('Embedding %s has %d/%d (train/validation) datapoints',
@@ -126,7 +137,7 @@ class EmbeddingLearner(object):
                 return
             val_losses = []
             # HACK NOTE Can't compute loss for the whole validation dataset
-            for _ in range(10):
+            for _ in range(100):
                 self.val_sampler.sample_data(key=None, k=self.batch_size)
                 vl = self.problem.run_loss(sess=sess,
                                            data=self.val_sampled)
@@ -135,18 +146,18 @@ class EmbeddingLearner(object):
             rospy.loginfo('Validation loss: %f ' % mean_val_loss)
             self.error_plotter.add_line(
                 'validation', self.spin_counter, mean_val_loss)
-            val_embed = self.problem.run_embedding(sess=sess, data=self.val_data)
-            val_labels = self.val_data.all_labels
-
-            pos_embeds = val_embed[val_labels]
-            neg_embeds = val_embed[np.logical_not(val_labels)]
-            self.embed_plotter.set_scatter('val', pos_embeds[:, 0], pos_embeds[:, 1], val_labels,
-                                        marker='o', markerfacecolor='none', linestyle='none')
+            val_embed, val_labels = self.get_embedding(sess=sess, 
+            on_training_data=False)
+            self.embed_plotter.set_scatter('val', 
+            x=val_embed[:, 0], 
+            y=val_embed[:, 1], 
+            c=val_labels,
+                                           marker='o')
 
 
 class ClassifierLearner(object):
-    def __init__(self, embedding, classifier, holdout, optimizer,
-                 visualize=True, vis_res=10, min_value=5.0):
+    def __init__(self, embedding, classifier, holdout, optimizer, min_value,
+                 visualize=True, vis_res=10):
         self.classifier = rr.ParzenNeighborsClassifier(**classifier)
         self.embedding = embedding
         self.optimizer = optim.parse_optimizers(**optimizer)
@@ -164,6 +175,8 @@ class ClassifierLearner(object):
         self.tuning_binary = adel.BinaryDatasetTranslator(self.tuning_base)
         self.validation_binary = adel.BinaryDatasetTranslator(
             self.validation_base)
+
+        self.min_value = min_value
 
         self.visualize = visualize
         self.vis_res = vis_res
@@ -186,7 +199,7 @@ class ClassifierLearner(object):
         embed, labels = self.embedding.get_embedding(sess=sess,
                                                      on_training_data=True)
         for x, y in izip(embed, labels):
-            if y:
+            if y > self.min_value:
                 self.report_binary.report_positive(x)
             else:
                 self.report_binary.report_negative(x)
@@ -194,7 +207,7 @@ class ClassifierLearner(object):
         embed, labels = self.embedding.get_embedding(sess=sess,
                                                      on_training_data=False)
         for x, y in izip(embed, labels):
-            if y:
+            if y > self.min_value:
                 self.validation_binary.report_positive(x)
             else:
                 self.validation_binary.report_negative(x)
@@ -252,10 +265,11 @@ class ClassifierLearner(object):
             [False] * self.tuning_binary.num_negatives
         tr_loss = rr.compute_classification_loss(classifier=self.classifier,
                                                  x=tr_x, y=tr_y)
+
         val_x = self.validation_binary.all_positives + \
             self.validation_binary.all_negatives
-        val_y = [True] * self.training_binary.num_positives \
-            + [False] * self.training_binary.num_negatives
+        val_y = [True] * self.validation_binary.num_positives \
+            + [False] * self.validation_binary.num_negatives
         val_loss = rr.compute_classification_loss(classifier=self.classifier,
                                                   x=val_x, y=val_y)
         rospy.loginfo('Classifier %s training loss: %f validation loss: %f',
@@ -319,8 +333,13 @@ class EmbeddingLearnerNode(object):
 
         return model, learner, classifier
 
-    def data_callback(self, is_active, sars):
-        s, a, r, sn = sars
+    def data_callback(self, is_active, payload):
+        if is_active:
+            s, a, r, sn = payload
+        else:
+            s, a = payload
+            r = 0
+
         if a not in self.registry:
             scope = 'embedding_%d' % len(self.registry)
             self.registry[a] = self.initialize_new(scope=scope)

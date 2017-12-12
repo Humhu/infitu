@@ -153,34 +153,35 @@ class EmbeddingProblem(object):
     """
     # TODO Make loss a parameter?
 
-    def __init__(self, model, separation_distance):
+    def __init__(self, model, separation_distance, label_dim=1):
         self.model = model
 
         self.p_image_ph = model.make_img_input(name='p_image')
         self.p_belief_ph = model.make_vec_input(name='p_belief')
         self.n_image_ph = model.make_img_input(name='n_image')
         self.n_belief_ph = model.make_vec_input(name='n_belief')
-
-        self.p_labels_ph = tf.placeholder(tf.float32,
-                                          name='%s/p_labels' % self.model.scope,
-                                          shape=[None,1])
-        self.n_labels_ph = tf.placeholder(tf.float32,
-                                          name='%s/n_labels' % self.model.scope,
-                                          shape=[None,1])
-
         self.p_net, params, state, ups = model.make_net(img_in=self.p_image_ph,
                                                         vec_in=self.p_belief_ph,
                                                         reuse=True)
         self.n_net = model.make_net(img_in=self.n_image_ph,
                                     vec_in=self.n_belief_ph,
                                     reuse=True)[0]
+
+        self.p_labels_ph = tf.placeholder(tf.float32,
+                                          name='%s/p_labels' % self.model.scope,
+                                          shape=[None, label_dim])
+        self.n_labels_ph = tf.placeholder(tf.float32,
+                                          name='%s/n_labels' % self.model.scope,
+                                          shape=[None, label_dim])
+                                          # TODO _feed_dict is probably not properly initialized
+
         self.state = state
 
         # Loss function penalty for different labels being near each other
         x_delta = self.p_net[-1] - self.n_net[-1]
         x_delta_sq = tf.reduce_sum(x_delta * x_delta, axis=-1)
         y_delta = self.p_labels_ph - self.n_labels_ph
-        y_delta_sq = y_delta * y_delta
+        y_delta_sq = tf.reduce_sum(y_delta * y_delta, axis=-1)
 
         self.sep_dist = separation_distance
 
@@ -213,23 +214,31 @@ class EmbeddingProblem(object):
 
     def run_embedding(self, sess, data):
         feed = self.model.init_feed(training=False)
-        ops = self.model.get_embed_ops(data=data.all_inputs, feed=feed)
+        ops = self.model.get_embed_ops(states=data.all_inputs, feed=feed)
         return sess.run(ops, feed_dict=feed)
 
     def _fill_feed(self, data, feed):
         """Helper to create class permutations and populate
         a feed dict.
         """
-        state_combos = list(itertools.product(data.all_data, data.all_data))
+        state_combos = list(itertools.product(data.all_inputs, data.all_inputs))
         p_states, n_states = zip(*state_combos)
+        label_combos = list(itertools.product(data.all_labels, data.all_labels))
+        p_labels, n_labels = zip(*label_combos)
 
         p_bel, p_img = self.model.parse_states(p_states)
         n_bel, n_img = self.model.parse_states(n_states)
+        d_bel, d_img = self.model.parse_states(data.all_inputs)
 
         if self.model.using_vector:
             feed[self.p_belief_ph] = p_bel
             feed[self.n_belief_ph] = n_bel
+            feed[self.model.vector_ph] = d_bel
 
         if self.model.using_image:
             feed[self.p_image_ph] = p_img
             feed[self.n_image_ph] = n_img
+            feed[self.model.image_ph] = d_img
+
+        feed[self.p_labels_ph] = np.atleast_2d(p_labels).T
+        feed[self.n_labels_ph] = np.atleast_2d(n_labels).T

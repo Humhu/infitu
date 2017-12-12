@@ -1,5 +1,12 @@
 <launch>
 
+<arg name="replay" default="false"/>
+<arg name="replay_path" default=""/>
+
+<param name="/use_sim_time" value="true" if="$(arg replay)"/>
+<node pkg="rosbag" type="play" name="player" 
+ args="$(arg replay_path) --clock --delay=3"/>
+
 <node pkg="infi_learn" type="value_learner.py" name="value_learner" output="screen"
 clear_params="true">
     <remap from="reward" to="ape/reward"/>
@@ -13,8 +20,8 @@ clear_params="true">
             image:
                 image_mode: gray
                 topic: feature_image
-
-            <!-- vector:
+<!-- 
+            vector:
                 topic: belief_state/stream_raw -->
 
         sars_frontend:
@@ -31,11 +38,11 @@ clear_params="true">
                     segment_length: 30
 
                 batch_size: 30
-                iters_per_spin: 500
+                iters_per_spin: 100
                 validation_period: 10
 
             network:
-                use_batch_norm: false
+                use_batch_norm: true
                 dropout_rate: 0.0
                 <!-- n_layers: 4
                 n_units: [64, 32, 16]
@@ -44,19 +51,24 @@ clear_params="true">
 
                 image_subnet:
                     n_layers: 3
-                    n_filters: [8, 8, 8]
-                    filter_sizes: [5, 5, 5]
+                    n_filters: [16, 8, 8]
+                    filter_sizes: [3, 3, 5]
                     conv_strides: 1
-                    pool_sizes: [5, 5, 5]
-                    pool_strides: 1
-                <!-- vector_subnet:
+                    pool_sizes: [3, 3, 5]
+                    pool_strides: [2 ,2, 3]
+                <!-- squeeze_subnet:
+                    n_layers: 2
+                    n_units: [64]
+                    n_outputs: 16
+                    final_rect: relu
+                vector_subnet:
                     n_layers: 3
-                    n_units: [32, 16]
-                    n_outputs: 8
+                    n_units: [16, 16]
+                    n_outputs: 16
                     final_rect: relu -->
                 final_subnet:
                     n_layers: 3
-                    n_units: [32, 16]
+                    n_units: [128, 32]
                     n_outputs: 1
                     final_rect: relu
     </rosparam>

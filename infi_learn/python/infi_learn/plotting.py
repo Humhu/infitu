@@ -10,7 +10,7 @@ import numpy as np
 import threading
 from collections import deque
 
-
+# TODO Make interface so MultiPlottable can inherit, move body to SinglePlottable base
 class Plottable(object):
     """Interface for objects that need to be called from a main 
     GUI thread
@@ -62,6 +62,49 @@ class Plottable(object):
 
         self.fig.canvas.draw_idle()
 
+class MultiPlottable(object):
+    """Multi-axis wrapper class
+    """
+    def __init__(self, n_i, n_j):
+        self.fig = None
+        self.n_i = n_i
+        self.n_j = n_j
+        self.inited = threading.Event()
+        self._axes = None
+
+    def wait_for_init(self):
+        self.inited.wait()
+        
+    def draw(self):
+        """Calls the draw update method to put this objects
+        plottable callbacks on the GUI queue
+        """
+        if self.fig is None:
+            self.fig = plt.figure()
+            self._axes = plt.subplots(nrows=self.n_j, ncols=self.n_i)
+            self.inited.set()
+
+        self.fig.canvas.draw_idle()
+
+    def get_axis_handle(self, ind):
+        return MultiPlottableHandle(self, ind)
+
+class MultiPlottableHandle(object):
+    def __init__(self, base, ind):
+        self.base = base
+        self.ind = ind
+
+    @property
+    def ax(self):
+        self.base.wait_for_init()
+        return self.base._axes[self.ind]
+
+    @property
+    def fig(self):
+        return self.base.fig
+
+    def wait_for_init(self):
+        self.base.wait_for_init()
 
 class BlockingRequest(object):
     def __init__(self, func):
@@ -203,7 +246,10 @@ class ScatterPlotter(Plottable):
     def _create_scatter(self, name, x, y, c, **kwargs):
         self.wait_for_init()
 
-        self.objects[name] = (self.ax.scatter(x, y, c=self.cm(c), label=name, **kwargs),
+        if name in self.objects:
+            lh, xs, ys, cs = self.objects[name]
+            lh.remove()
+        self.objects[name] = (self.ax.scatter(x, y, c=c, cmap=self.cm, label=name, **kwargs),
                               x, y, c)
 
     def clear_scatter(self, name):
@@ -236,3 +282,7 @@ class ImagePlotter(Plottable):
         else:
             self.pim.set_data(img)
             self.pim.set_extent(extents)
+
+# class FilterPlotter(object):
+#     def __init__(self, filters):
+#         self.base = MultiPlottable()

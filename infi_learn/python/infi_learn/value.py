@@ -147,8 +147,8 @@ class BanditValueProblem(object):
     def __init__(self, model, **kwargs):
         self.model = model
 
-        self.image_ph = model.make_img_input(name='p_image')
-        self.vec_ph = model.make_vec_input(name='p_vec')
+        self.image_ph = model.image_ph #model.make_img_input(name='image')
+        self.vec_ph = model.vector_ph #model.make_vec_input(name='vector')
         self.value_ph = tf.placeholder(tf.float32,
                                        shape=[None, 1],
                                        name='%s/values' % model.scope)
