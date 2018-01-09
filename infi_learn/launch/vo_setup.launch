@@ -9,7 +9,7 @@
 </include>
 
 <include file="$(find infi_feat)/launch/vo_features.launch">
-    <arg name="image_topic" value="camera_ids/image_raw"/>
+    <arg name="image_topic" value="visual_odometry/image_raw"/>
     <arg name="odom_topic" value="vel_odom"/>
 </include>
 
