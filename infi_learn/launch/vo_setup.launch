@@ -8,8 +8,8 @@
     <arg name="min_reward" value="4.5"/>
 </include>
 
-<include file="$(find infi_feat)/launch/lo_features.launch">
-    <arg name="scan_topic" value="laser0/scan_raw"/>
+<include file="$(find infi_feat)/launch/vo_features.launch">
+    <arg name="image_topic" value="camera_ids/image_raw"/>
     <arg name="odom_topic" value="vel_odom"/>
 </include>
 
@@ -18,11 +18,11 @@
 </include>
 
 <node pkg="rosbag" type="record" name="bagger" output="screen" if="$(arg enable_bag)"
-args="-O /tmp/lo_features.bag 
+args="-O /tmp/vo_features.bag 
     feature_image
     belief_state/stream_raw
     ape/reward
-    lo_interface/normalized_parameters
+    vo_interface/normalized_parameters
     terminator/breaks"/>
 
 </launch>
