@@ -1,0 +1,28 @@
+<launch>
+
+<arg name="enable_bag" default="false"/>
+
+<include file="$(find infi_learn)/launch/episode_terminator.launch">
+    <arg name="reset_service" value="velocity_filter/reset"/>
+    <arg name="reward_topic" value="ape/reward"/>
+    <arg name="min_reward" value="4.5"/>
+</include>
+
+<include file="$(find infi_feat)/launch/so_features.launch">
+    <arg name="image_topic" value="stereo_odometry/zed_driver/left/image_rect"/>
+    <arg name="odom_topic" value="vel_odom"/>
+</include>
+
+<include file="$(find infi_perf)/launch/rewards_vel2d.launch">
+    <arg name="odom_topic" value="odom_throttled"/>
+</include>
+
+<node pkg="rosbag" type="record" name="bagger" output="screen" if="$(arg enable_bag)"
+args="-O /tmp/so_features.bag 
+    feature_image
+    belief_state/stream_raw
+    ape/reward
+    so_interface/normalized_parameters
+    terminator/breaks"/>
+
+</launch>
