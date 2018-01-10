@@ -26,7 +26,7 @@ args="messages $(arg odom_topic) $(arg odom_rate) odom_throttled"/>
     </rosparam>
 </node>
 
-<node pkg="infi_learn" type="laser_painter.py" name="painter" output="screen">
+<node pkg="infi_feat" type="laser_painter.py" name="painter" output="screen">
     <remap from="scan" to="scan_throttled"/>
     <remap from="image" to="feature_image"/>
     <rosparam>
