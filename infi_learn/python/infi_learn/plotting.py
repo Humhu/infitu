@@ -42,6 +42,15 @@ class Plottable(object):
             self.other.wait_for_init()
             return self.other.ax
 
+    def close(self):
+        if self.other is None:
+            plt.close(self.fig)
+
+    def save(self, path):
+        if self.other is None:
+            plt.figure(self.fig.number)
+            plt.savefig(path, transparent=True)
+
     def wait_for_init(self):
         self.inited.wait()
 
@@ -72,6 +81,15 @@ class MultiPlottable(object):
         self.n_j = int(n_j)
         self.inited = threading.Event()
         self._axes = None
+
+    def close(self):
+        if self.fig is not None:
+            plt.close(self.fig)
+
+    def save(self, path):
+        if self.fig is not None:
+            plt.figure(self.fig.number)
+            plt.savefig(path, transparent=True)
 
     def wait_for_init(self):
         self.inited.wait()
@@ -131,6 +149,17 @@ class PlottingGroup(object):
         self.plots = []
         self.requests = deque()
 
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        for p in self.plots:
+            p.close()
+
+    def save(self, base):
+        for i,p in enumerate(self.plots):
+            p.save('%sfig_%d.png' % (base, i))
+
     def request_init(self, func):
         req = BlockingRequest(func)
         self.requests.append(req)
@@ -148,13 +177,16 @@ class PlottingGroup(object):
         if len(self.plots) > 0:
             plt.pause(0.01)
 
-    def spin(self, rate):
+    def spin(self, rate=None):
         while not rospy.is_shutdown():
             self.draw_all()
 
             for req in self.requests:
                 req.process()
             self.requests.clear()
+
+            if rate is None:
+                return
 
             time.sleep(1.0 / rate)
         plt.close('all')
@@ -220,10 +252,11 @@ class LineSeriesPlotter(Plottable):
             self.ax.autoscale_view(True, True, True)
 
 class ScatterPlotter(Plottable):
-    def __init__(self, cm=cm.bwr, **kwargs):
+    def __init__(self, cm=cm.plasma, **kwargs):
         Plottable.__init__(self, **kwargs)
         self.objects = {}
         self.cm = cm
+        self.cbar = None
 
     def add_scatter(self, name, x, y, c, **kwargs):
         self.wait_for_init()
@@ -255,8 +288,13 @@ class ScatterPlotter(Plottable):
         if name in self.objects:
             lh, xs, ys, cs = self.objects[name]
             lh.remove()
-        self.objects[name] = (self.ax.scatter(x, y, c=c, cmap=self.cm, label=name, **kwargs),
-                              x, y, c)
+        scatter = self.ax.scatter(x, y, c=c, cmap=self.cm, label=name, **kwargs)
+        self.objects[name] = (scatter, x, y, c)
+
+        if self.cbar is None:
+            self.cbar = plt.colorbar(mappable=scatter, ax=self.ax)
+        else:
+            self.cbar.set_cmap(scatter.get_cmap())
 
     def clear_scatter(self, name):
         self.wait_for_init()
@@ -293,6 +331,7 @@ class ImagePlotter(Plottable):
             if extents is not None:
                 self.pim.set_extent(extents)
 
+# TODO Crikey this one is a hack
 class FilterPlotter(object):
     def __init__(self, N):
         s = math.ceil(math.sqrt(float(N)))
@@ -301,6 +340,12 @@ class FilterPlotter(object):
         for i in range(N):
             p = ImagePlotter(other=self.base.get_axis_handle(i))
             self.plotters.append(p)
+
+    def close(self):
+        self.base.close()
+
+    def save(self, path):
+        self.base.save(path)
 
     def set_filters(self, filters):
         for i, p in enumerate(self.plotters):

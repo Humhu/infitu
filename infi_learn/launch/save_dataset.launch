@@ -1,0 +1,39 @@
+<launch>
+
+<arg name="replay" default="false"/>
+<arg name="replay_path" default=""/>
+
+<arg name="output_path"/>
+
+<param name="/use_sim_time" value="true" if="$(arg replay)"/>
+<node pkg="rosbag" type="play" name="player" required="true"
+ args="$(arg replay_path) --clock --delay=2 --rate=1.0 --duration=30.0"/>
+
+<node pkg="image_view" type="image_view" name="viewer">
+    <remap from="image" to="R1/feature_image"/>
+</node>
+
+<node pkg="infi_learn" type="dataset_saver.py" name="saver" output="screen"
+clear_params="true">
+    <remap from="reward" to="R1/ape/reward"/>
+    <remap from="action" to="R1/lo_interface/normalized_parameters"/>
+    <param name="output_path" value="$(arg output_path)"/>
+    <rosparam>
+        sources:
+            dt_tol: 0.1
+            image:
+                image_mode: gray
+                topic: R1/feature_image
+
+            belief:
+                topic: R1/belief_state/stream_raw
+
+        sars_frontend:
+            sync_time_tolerance: 0.1
+            dt: 3.0
+            gamma: 1.0
+            lag: 1.0
+    </rosparam>
+</node>
+
+</launch>

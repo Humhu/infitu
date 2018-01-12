@@ -10,10 +10,10 @@ import rospy
 
 import utils as rru
 import networks as rrn
+from infi_learn.plotting import LineSeriesPlotter, FilterPlotter, ScatterPlotter
 
-
-class EmbeddingNetwork(rrn.NetworkBase):
-    """Wraps and provides methods for querying an embedding network.
+class EmbeddingNetwork(rrn.VectorImageNetwork):
+    """Derived VI network for learning embeddings
 
     Parameters
     ----------
@@ -24,20 +24,11 @@ class EmbeddingNetwork(rrn.NetworkBase):
     kwargs   : keyword args for NetworkBase
     """
 
-    def __init__(self, img_size, vec_size, **kwargs):
-        rrn.NetworkBase.__init__(self, **kwargs)
-        self.img_size = img_size
-        self.vec_size = vec_size
-
-        if not (self.using_image or self.using_vector):
-            raise ValueError('Must use image and/or vector')
-
-        self.image_ph = self.make_img_input(name='image')
-        self.vector_ph = self.make_vec_input(name='vector')
-        net, params, state, ups = self.make_net(img_in=self.image_ph,
-                                                vec_in=self.vector_ph)
-        self.net = net
-        self.params = params
+    # TODO Have embedding_dimension as an argument and add a final
+    # layer on the tail end of the created networks to bring it to that
+    # dimension with the appropriate rectification?
+    def __init__(self, **kwargs):
+        rrn.VectorImageNetwork.__init__(self, **kwargs)
 
     def __repr__(self):
         s = 'Embedding network:'
@@ -45,52 +36,9 @@ class EmbeddingNetwork(rrn.NetworkBase):
             s += '\n\t%s' % str(e)
         return s
 
-    def initialize(self, sess):
-        sess.run([p.initializer for p in self.params], feed_dict={})
-
-    def parse_states(self, states):
-        if self.using_vector and self.using_image:
-            bel, img = zip(*states)
-            bel = rru.shape_data_vec(bel)
-            img = rru.shape_data_2d(img)
-        elif self.using_vector and not self.using_image:
-            bel = rru.shape_data_vec(states)
-            img = None
-        elif not self.using_vector and self.using_image:
-            bel = None
-            img = rru.shape_data_2d(states)
-        else:
-            raise ValueError('Must use vector and/or image')
-        return bel, img
-
     @property
-    def using_image(self):
-        return not self.img_size is None
-
-    @property
-    def using_vector(self):
-        return not self.vec_size is None
-
-    def make_img_input(self, name):
-        """Creates an image input placeholder
-        """
-        if not self.using_image:
-            return None
-        else:
-            return tf.placeholder(tf.float32,
-                                  shape=[None, self.img_size[0],
-                                         self.img_size[1], 1],
-                                  name='%s/%s' % (self.scope, name))
-
-    def make_vec_input(self, name):
-        """Creates a vector input placeholder
-        """
-        if not self.using_vector:
-            return None
-        else:
-            return tf.placeholder(tf.float32,
-                                  shape=[None, self.vec_size],
-                                  name='%s/%s' % (self.scope, name))
+    def output_op(self):
+        return self.net[-1]
 
     def make_net(self, img_in=None, vec_in=None, reuse=False):
         """Creates the model network with the specified parameters
@@ -109,51 +57,22 @@ class EmbeddingNetwork(rrn.NetworkBase):
                                               reuse=reuse,
                                               **self.network_args)
 
-    # TODO Possibly separate embed out from the network itself?
-    def get_embed_ops(self, states, feed):
-        """Populates a feed dict and returns ops to perform an embedding
-        using this model.
-
-        Parameters
-        ----------
-        states : iterable of state tuples
-        feed : dict
-            Tensorflow feed dict to add fields to
-
-        Returns
-        -------
-        ops : tensorflow operation
-            Operation to run to get embeddings
-        """
-        if len(states) == 0:
-            return None
-
-        if self.using_image and not self.using_vector:
-            feed[self.image_ph] = rru.shape_data_2d(states)
-        elif not self.using_image and self.using_vector:
-            feed[self.vector_ph] = rru.shape_data_vec(states)
-        else:
-            # By convention (vecs, imgs)
-            vecs, imgs = zip(*states)
-            feed[self.image_ph] = rru.shape_data_2d(imgs)
-            feed[self.vector_ph] = rru.shape_data_vec(vecs)
-        return self.net[-1]
-
 
 class EmbeddingProblem(object):
     """Wraps an embedding network and learning optimization. Provides methods for
-    using the embedding and sampling the dataset for aggregate learning.
+    using the embedding.
 
     Parameters
-    ----------
+    ==========
     model : EmbeddingNetwork
         The model to learn on
-    sep_dist : float
+    alpha : float
         Desired squared min embedding separation distance between disparate classes
     """
     # TODO Make loss a parameter?
 
-    def __init__(self, model, separation_distance, label_dim=1):
+    def __init__(self, model, alpha, loss_type, learning_rate=1e-3,
+                 label_dim=1):
         self.model = model
 
         self.p_image_ph = model.make_img_input(name='p_image')
@@ -173,7 +92,7 @@ class EmbeddingProblem(object):
         self.n_labels_ph = tf.placeholder(tf.float32,
                                           name='%s/n_labels' % self.model.scope,
                                           shape=[None, label_dim])
-                                          # TODO _feed_dict is probably not properly initialized
+        # TODO _feed_dict is probably not properly initialized
 
         self.state = state
 
@@ -183,16 +102,23 @@ class EmbeddingProblem(object):
         y_delta = self.p_labels_ph - self.n_labels_ph
         y_delta_sq = tf.reduce_sum(y_delta * y_delta, axis=-1)
 
-        self.sep_dist = separation_distance
+        y_delta_abs = 1.0 - tf.exp(-tf.reduce_sum(tf.abs(y_delta), axis=-1))
 
-        # Squared exponential with sep_dist as bandwidth
-        # self.loss = tf.reduce_mean(-tf.exp(delta_sq / self.sep_dist))
+        self.alpha = alpha
 
-        # Huber with sep_dist as horizontal offset
-        self.loss = tf.losses.huber_loss(labels=-x_delta_sq + y_delta_sq * self.sep_dist,
-                                         predictions=[0])
+        if loss_type == 'squared_exp':
+            # Squared exponential with y_delta_sq * alpha as bandwidth
+            # NOTE Hack epsilon in denominator to prevent division by 0
+            self.loss = tf.reduce_mean(
+                y_delta_sq * tf.exp(-x_delta_sq / (self.alpha)))
+        elif loss_type == 'truncated':
+            # Huber with y_delta_sq * alpha as horizontal offset
+            self.loss = tf.losses.huber_loss(labels=-x_delta_sq + y_delta_abs * self.alpha,
+                                             predictions=[0])
+        else:
+            raise ValueError('Unknown loss type: %s' % loss_type)
 
-        opt = tf.train.AdamOptimizer(learning_rate=1e-3)
+        opt = tf.train.AdamOptimizer(learning_rate=float(learning_rate))
         with tf.control_dependencies(ups):
             self.train = opt.minimize(self.loss, var_list=params)
 
@@ -214,17 +140,15 @@ class EmbeddingProblem(object):
 
     def run_embedding(self, sess, data):
         feed = self.model.init_feed(training=False)
-        ops = self.model.get_embed_ops(states=data.all_inputs, feed=feed)
+        ops = self.model.get_ops(states=data.all_inputs, feed=feed)
         return sess.run(ops, feed_dict=feed)
 
     def _fill_feed(self, data, feed):
         """Helper to create class permutations and populate
         a feed dict.
         """
-        state_combos = list(itertools.product(data.all_inputs, data.all_inputs))
-        p_states, n_states = zip(*state_combos)
-        label_combos = list(itertools.product(data.all_labels, data.all_labels))
-        p_labels, n_labels = zip(*label_combos)
+        p_states, n_states = zip(*rru.unique_combos(data.all_inputs))
+        p_labels, n_labels = zip(*rru.unique_combos(data.all_labels))
 
         p_bel, p_img = self.model.parse_states(p_states)
         n_bel, n_img = self.model.parse_states(n_states)
@@ -242,3 +166,143 @@ class EmbeddingProblem(object):
 
         feed[self.p_labels_ph] = np.atleast_2d(p_labels).T
         feed[self.n_labels_ph] = np.atleast_2d(n_labels).T
+
+class EmbeddingLearner(object):
+    """Maintains dataset splits and plotting around an EmbeddingProblem
+    """
+
+    def __init__(self, problem, holdout,
+                 batch_size=10, iters_per_spin=10, validation_period=10):
+        self.problem = problem
+
+        self.train_base = adel.BasicDataset()
+        self.val_base = adel.BasicDataset()
+        self.holdout = adel.HoldoutWrapper(training=self.train_base,
+                                           holdout=self.val_base,
+                                           **holdout)
+
+        self.train_sampler = adel.DatasetSampler(base=self.train_base,
+                                                 method='uniform')
+        self.train_sampled = adel.LabeledDatasetTranslator(
+            base=self.train_sampler)
+        self.val_sampler = adel.DatasetSampler(base=self.val_base,
+                                               method='uniform')
+        self.val_sampled = adel.LabeledDatasetTranslator(base=self.val_sampler)
+
+        self.train_data = adel.LabeledDatasetTranslator(base=self.train_base)
+        self.val_data = adel.LabeledDatasetTranslator(base=self.val_base)
+        self.reporter = adel.LabeledDatasetTranslator(base=self.holdout)
+
+        self.iters_per_spin = iters_per_spin
+        self.val_period = validation_period
+        self.batch_size = batch_size
+
+        self.spin_counter = 0
+
+        self.error_plotter = LineSeriesPlotter(title='Embedding losses over time %s' % self.scope,
+                                               xlabel='Spin iter',
+                                               ylabel='Embedding loss')
+        self.embed_plotter = ScatterPlotter(title='Validation embeddings %s' %
+                                            self.problem.model.scope)
+        self.plottables = [self.error_plotter, self.embed_plotter]
+
+        if self.problem.model.using_image:
+            # TODO HACK
+            self.filters = self.problem.model.params[0]
+            n_filters = int(self.filters.shape[-1])
+            self.filter_plotter = FilterPlotter(n_filters)
+            self.plottables.append(self.filter_plotter)
+
+    @property
+    def scope(self):
+        return self.problem.model.scope
+
+    def report_state_value(self, state, value):
+        self.reporter.report_label(x=state, y=value)
+
+    def get_plottables(self):
+        """Return a list of the plottables used by this learner
+        """
+        return self.plottables
+
+    def get_embedding(self, sess, on_training_data=True):
+        """Returns the embedding values for training or validation data
+        """
+        if on_training_data:
+            data = self.train_base
+        else:
+            data = self.val_base
+
+        chunker = adel.DatasetChunker(base=data, block_size=500)  # TODO
+        x = [self.problem.run_embedding(sess=sess, data=adel.LabeledDatasetTranslator(chunk))
+             for chunk in chunker.iter_subdata(key=None)]  # HACK key
+        if len(x) == 0:
+            x = []
+        else:
+            x = np.vstack(x)
+
+        y = adel.LabeledDatasetTranslator(data).all_labels
+        return x, y
+
+    def get_status(self):
+        """Returns a string describing the status of this learner
+        """
+        # TODO More information
+        status = 'Embedding %s has %d/%d (train/validation) datapoints' % \
+            (self.scope, self.train_data.num_data, self.val_data.num_data)
+        return status
+
+    def spin(self, sess):
+        """Executes a train/validate cycle
+        """
+
+        train_loss = None
+        for _ in range(self.iters_per_spin):
+            if self.train_data.num_data < self.batch_size:
+                print 'Not enough data to train, skipping...'
+                break
+
+            self.train_sampler.sample_data(key=None, k=self.batch_size)
+            train_loss = self.problem.run_training(sess=sess,
+                                                   data=self.train_sampled)
+
+        self.spin_counter += 1
+        if train_loss is None:
+            return
+        print 'Training iter: %d loss: %f ' % \
+            (self.spin_counter * self.iters_per_spin, train_loss)
+        self.error_plotter.add_line('training', self.spin_counter, train_loss)
+
+        if self.spin_counter % self.val_period == 0:
+
+            # Plot filters if using them
+            if self.problem.model.using_image:
+                fil_vals = np.squeeze(sess.run(self.filters))
+                fil_vals = np.rollaxis(fil_vals, -1)
+                self.filter_plotter.set_filters(fil_vals)
+
+            # If not enough validation data for a full batch, bail
+            if self.val_data.num_data < self.batch_size:
+                return
+
+            # HACK NOTE Can't compute loss for the whole validation dataset
+            # so we take the mean of 100 samplings
+            val_losses = []
+            for _ in range(100):
+                self.val_sampler.sample_data(key=None, k=self.batch_size)
+                vl = self.problem.run_loss(sess=sess,
+                                           data=self.val_sampled)
+                val_losses.append(vl)
+            mean_val_loss = np.mean(val_losses)
+            print 'Validation loss: %f ' % mean_val_loss
+
+            self.error_plotter.add_line('validation',
+                                        self.spin_counter,
+                                        mean_val_loss)
+            val_embed, val_labels = self.get_embedding(sess=sess,
+                                                       on_training_data=False)
+            self.embed_plotter.set_scatter('val',
+                                           x=val_embed[:, 0],
+                                           y=val_embed[:, 1],
+                                           c=val_labels,
+                                           marker='o')

@@ -26,6 +26,8 @@ class DataSource(object):
         self.buffer = deque()
 
     def buffer_data(self, t, data):
+        """Adds a timestamped piece of data to the source internal buffer
+        """
         self.buffer.append((t, data))
 
     def get_data(self, until):
@@ -56,34 +58,35 @@ class MultiDataSource(object):
             secondaries = src.get_data(until)
             for t, d in secondaries:
                 self.buffers[i].insert(t, d)
-    
 
         out = []
         for t, data in primaries:
             closest = [self.buffers[i].get_closest_either(t)
                        for i in range(len(self.sources) - 1)]
-            if any([i is None or (abs(t - i.time) > self.tol) 
+            if any([i is None or (abs(t - i.time) > self.tol)
                     for i in closest]):
                 continue
 
             agg = [data] + [i.data for i in closest]
-            out.append((t,agg))
+            out.append((t, agg))
 
         for b in self.buffers:
             b.trim_earliest_to(until - self.tol)
         return out
 
+
 class VectorSource(DataSource):
     """Subscribes to a stamped vector
     """
 
-    def __init__(self, topic):
+    def __init__(self, topic=None):
         super(VectorSource, self).__init__()
         self.dim = None
-        self.vec_sub = rospy.Subscriber(topic, FloatVectorStamped,
-                                        callback=self._vec_callback)
+        if topic is not None:
+            self.vec_sub = rospy.Subscriber(topic, FloatVectorStamped,
+                                            callback=self.vec_callback)
 
-    def _vec_callback(self, msg):
+    def vec_callback(self, msg):
         if self.dim is None:
             self.dim = len(msg.values)
         self.buffer_data(t=msg.header.stamp.to_sec(),
@@ -117,19 +120,21 @@ class LaserSource(DataSource):
         ranges[ranges == float('inf')] = self.laser_inf_val
         return ranges
 
+
 class ImageSource(DataSource):
     """Subscribes to an image topic.
     """
 
-    def __init__(self, topic, image_mode='gray'):
+    def __init__(self, topic=None, image_mode='gray'):
         super(ImageSource, self).__init__()
         self.dim = None
         self.image_mode = image_mode
         self.num_image_channels()  # NOTE Arg checking
         self.image_bridge = CvBridge()
 
-        self.camera_sub = rospy.Subscriber(topic, Image,
-                                           callback=self._image_callback)
+        if topic is not None:
+            self.camera_sub = rospy.Subscriber(topic, Image,
+                                               callback=self.image_callback)
 
     def num_image_channels(self):
         if self.image_mode == 'gray':
@@ -139,8 +144,7 @@ class ImageSource(DataSource):
         else:
             raise ValueError('Invalid image mode: %s' % self.image_mode)
 
-    def _image_callback(self, msg):
-
+    def image_callback(self, msg):
         if self.image_mode == 'gray':
             try:
                 image = self.image_bridge.imgmsg_to_cv2(msg, "mono8")

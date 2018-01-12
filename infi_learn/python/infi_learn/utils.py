@@ -101,3 +101,7 @@ def shape_data_1d(data):
                 'Received data with %d channels, but need 1' % data.shape[-1])
 
     return data
+
+def unique_combos(data):
+    n = len(data)
+    return [(data[i], data[j]) for i in range(n) for j in range(i+1,n)]
