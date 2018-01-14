@@ -2,7 +2,9 @@
 """
 
 import math
+import random
 import numpy as np
+from itertools import product
 
 def shape_data_vec(data):
     """Converts single or array of vector data into shape required for tensorflow
@@ -102,6 +104,8 @@ def shape_data_1d(data):
 
     return data
 
-def unique_combos(data):
+def unique_combos(data, k=1):
+    """k=0 corresponds to non-unique
+    """
     n = len(data)
-    return [(data[i], data[j]) for i in range(n) for j in range(i+1,n)]
+    return [(data[i], data[j]) for i in range(n) for j in range(i+k,n)]

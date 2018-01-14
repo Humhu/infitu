@@ -99,13 +99,13 @@ class VectorImageNetwork(NetworkBase):
         if not (self.using_image or self.using_vector):
             raise ValueError('Must use image and/or vector')
 
-        self.image_ph = self.make_img_input(name='image')
-        self.vector_ph = self.make_vec_input(name='vector')
-        self.net, self.params, self.state, self.ups = self.make_net(img_in=self.image_ph,
-                                                                    vec_in=self.vector_ph)
+        #self.image_ph = self.make_img_input(name='image')
+        #self.vector_ph = self.make_vec_input(name='vector')
+        #self.net, self.params, self.state, self.ups = self.make_net(img_in=self.image_ph,
+        #                                                            vec_in=self.vector_ph)
 
-    def initialize(self, sess):
-        sess.run([p.initializer for p in self.params], feed_dict={})
+    #def initialize(self, sess):
+    #    sess.run([p.initializer for p in self.params], feed_dict={})
 
     def parse_states(self, states):
         if self.using_vector and self.using_image:
@@ -151,13 +151,6 @@ class VectorImageNetwork(NetworkBase):
                                   shape=[None, self.vec_size],
                                   name='%s/%s' % (self.scope, name))
 
-    @abc.abstractproperty
-    def output_op(self):
-        """Returns the tensor corresponding to the network output. To be
-        implemented by a derived class.
-        """
-        pass
-
     @abc.abstractmethod
     def make_net(self, img_in=None, vec_in=None, reuse=False):
         """Creates the model network with the specified parameters. To be 
@@ -165,13 +158,13 @@ class VectorImageNetwork(NetworkBase):
         """
         pass
 
-    def get_ops(self, states, feed):
+    def get_ops(self, inputs, img_ph, vec_ph, feed):
         """Populates a feed dict and returns ops to perform an embedding
         using this model.
 
         Parameters
         ----------
-        states : iterable of state tuples
+        inputs : iterable of state tuples
         feed : dict
             Tensorflow feed dict to add fields to
 
@@ -180,16 +173,15 @@ class VectorImageNetwork(NetworkBase):
         ops : tensorflow operation
             Operation to run to get output
         """
-        if len(states) == 0:
+        if len(inputs) == 0:
             return None
 
         if self.using_image and not self.using_vector:
-            feed[self.image_ph] = rru.shape_data_2d(states)
+            feed[img_ph] = rru.shape_data_2d(inputs)
         elif not self.using_image and self.using_vector:
-            feed[self.vector_ph] = rru.shape_data_vec(states)
+            feed[vec_ph] = rru.shape_data_vec(inputs)
         else:
             # By convention (vecs, imgs)
-            vecs, imgs = zip(*states)
-            feed[self.image_ph] = rru.shape_data_2d(imgs)
-            feed[self.vector_ph] = rru.shape_data_vec(vecs)
-        return self.output_op
+            vecs, imgs = zip(*inputs)
+            feed[img_ph] = rru.shape_data_2d(imgs)
+            feed[vec_ph] = rru.shape_data_vec(vecs)

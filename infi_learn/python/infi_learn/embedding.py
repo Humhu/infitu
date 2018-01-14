@@ -12,6 +12,7 @@ import utils as rru
 import networks as rrn
 from infi_learn.plotting import LineSeriesPlotter, FilterPlotter, ScatterPlotter
 
+
 class EmbeddingNetwork(rrn.VectorImageNetwork):
     """Derived VI network for learning embeddings
 
@@ -30,15 +31,11 @@ class EmbeddingNetwork(rrn.VectorImageNetwork):
     def __init__(self, **kwargs):
         rrn.VectorImageNetwork.__init__(self, **kwargs)
 
-    def __repr__(self):
-        s = 'Embedding network:'
-        for e in self.net:
-            s += '\n\t%s' % str(e)
-        return s
-
-    @property
-    def output_op(self):
-        return self.net[-1]
+    # def __repr__(self):
+    #     s = 'Embedding network:'
+    #     for e in self.net:
+    #         s += '\n\t%s' % str(e)
+    #     return s
 
     def make_net(self, img_in=None, vec_in=None, reuse=False):
         """Creates the model network with the specified parameters
@@ -66,22 +63,22 @@ class EmbeddingProblem(object):
     ==========
     model : EmbeddingNetwork
         The model to learn on
-    alpha : float
+    bandwidth : float
         Desired squared min embedding separation distance between disparate classes
     """
     # TODO Make loss a parameter?
 
-    def __init__(self, model, alpha, loss_type, learning_rate=1e-3,
-                 label_dim=1):
+    def __init__(self, model, loss_type, combo_mode='unique', learning_rate=1e-3,
+                 label_dim=1, distance_scale=1.0, attraction_k=1e-3, unique_k=1):
         self.model = model
 
         self.p_image_ph = model.make_img_input(name='p_image')
         self.p_belief_ph = model.make_vec_input(name='p_belief')
         self.n_image_ph = model.make_img_input(name='n_image')
         self.n_belief_ph = model.make_vec_input(name='n_belief')
-        self.p_net, params, state, ups = model.make_net(img_in=self.p_image_ph,
-                                                        vec_in=self.p_belief_ph,
-                                                        reuse=True)
+        self.p_net, self.params, state, ups = model.make_net(img_in=self.p_image_ph,
+                                                             vec_in=self.p_belief_ph,
+                                                             reuse=False)
         self.n_net = model.make_net(img_in=self.n_image_ph,
                                     vec_in=self.n_belief_ph,
                                     reuse=True)[0]
@@ -95,35 +92,45 @@ class EmbeddingProblem(object):
         # TODO _feed_dict is probably not properly initialized
 
         self.state = state
+        self.combo_mode = combo_mode
+        self.unique_k = unique_k
 
         # Loss function penalty for different labels being near each other
         x_delta = self.p_net[-1] - self.n_net[-1]
-        x_delta_sq = tf.reduce_sum(x_delta * x_delta, axis=-1)
         y_delta = self.p_labels_ph - self.n_labels_ph
-        y_delta_sq = tf.reduce_sum(y_delta * y_delta, axis=-1)
+        x_dist = tf.norm(x_delta, axis=-1)
+        y_dist = tf.norm(y_delta, ord=1, axis=-1)
 
-        y_delta_abs = 1.0 - tf.exp(-tf.reduce_sum(tf.abs(y_delta), axis=-1))
+        # A = self.p_net[-1]
+        # r = tf.reduce_sum(A*A, 1)
+        # # turn r into column vector
+        # r = tf.reshape(r, [-1, 1])
+        # D = r - 2*tf.matmul(A, tf.transpose(A)) + tf.transpose(r)
+        # x_dist = tf.reshape(D, [-1,1])
 
-        self.alpha = alpha
+        if loss_type == 'relu':
+            zero_point = y_dist * float(distance_scale)
+            err = x_dist - zero_point
 
-        if loss_type == 'squared_exp':
-            # Squared exponential with y_delta_sq * alpha as bandwidth
-            # NOTE Hack epsilon in denominator to prevent division by 0
-            self.loss = tf.reduce_mean(
-                y_delta_sq * tf.exp(-x_delta_sq / (self.alpha)))
-        elif loss_type == 'truncated':
-            # Huber with y_delta_sq * alpha as horizontal offset
-            self.loss = tf.losses.huber_loss(labels=-x_delta_sq + y_delta_abs * self.alpha,
+            # penalty for dissimilar points being too close
+            close_loss = tf.nn.relu(-err)
+            # penalty for similar points being too far
+            far_loss = float(attraction_k) * tf.nn.relu(err)
+
+            self.loss = tf.reduce_mean(close_loss + far_loss)
+        elif loss_type == 'huber':
+            # Huber with y_delta_sq * bandwidth as horizontal offset
+            self.loss = tf.losses.huber_loss(labels=-x_dist + y_dist * float(distance_scale),
                                              predictions=[0])
         else:
             raise ValueError('Unknown loss type: %s' % loss_type)
 
         opt = tf.train.AdamOptimizer(learning_rate=float(learning_rate))
         with tf.control_dependencies(ups):
-            self.train = opt.minimize(self.loss, var_list=params)
+            self.train = opt.minimize(self.loss, var_list=self.params)
 
         self.initializers = [s.initializer for s in state] + \
-            [adel.optimizer_initializer(opt, params)]
+            [adel.optimizer_initializer(opt, self.params)]
 
     def initialize(self, sess):
         sess.run(self.initializers)
@@ -140,32 +147,41 @@ class EmbeddingProblem(object):
 
     def run_embedding(self, sess, data):
         feed = self.model.init_feed(training=False)
-        ops = self.model.get_ops(states=data.all_inputs, feed=feed)
-        return sess.run(ops, feed_dict=feed)
+        self.model.get_ops(inputs=data.all_inputs,
+                           img_ph=self.p_image_ph,
+                           vec_ph=self.p_belief_ph,
+                           feed=feed)
+        return sess.run(self.p_net[-1], feed_dict=feed)
 
     def _fill_feed(self, data, feed):
         """Helper to create class permutations and populate
         a feed dict.
         """
-        p_states, n_states = zip(*rru.unique_combos(data.all_inputs))
-        p_labels, n_labels = zip(*rru.unique_combos(data.all_labels))
 
-        p_bel, p_img = self.model.parse_states(p_states)
-        n_bel, n_img = self.model.parse_states(n_states)
-        d_bel, d_img = self.model.parse_states(data.all_inputs)
+        # Downsampling number of combinations
+        if self.combo_mode == 'unique':
+            draw = rru.unique_combos(data.all_data, self.unique_k)
+        elif self.combo_mode == 'split':
+            n = data.num_data / 2
+            draw = zip(data.all_data[:n], data.all_data[n:])
+        else:
+            raise ValueError('Unknown combo mode: %s' % self.combo_mode)
 
-        if self.model.using_vector:
-            feed[self.p_belief_ph] = p_bel
-            feed[self.n_belief_ph] = n_bel
-            feed[self.model.vector_ph] = d_bel
+        p_data, n_data = zip(*draw)
+        p_states, p_labels = zip(*p_data)
+        n_states, n_labels = zip(*n_data)
 
-        if self.model.using_image:
-            feed[self.p_image_ph] = p_img
-            feed[self.n_image_ph] = n_img
-            feed[self.model.image_ph] = d_img
-
+        self.model.get_ops(inputs=p_states,
+                           img_ph=self.p_image_ph,
+                           vec_ph=self.p_belief_ph,
+                           feed=feed)
+        self.model.get_ops(inputs=n_states,
+                           img_ph=self.n_image_ph,
+                           vec_ph=self.n_belief_ph,
+                           feed=feed)
         feed[self.p_labels_ph] = np.atleast_2d(p_labels).T
         feed[self.n_labels_ph] = np.atleast_2d(n_labels).T
+
 
 class EmbeddingLearner(object):
     """Maintains dataset splits and plotting around an EmbeddingProblem
@@ -208,7 +224,7 @@ class EmbeddingLearner(object):
 
         if self.problem.model.using_image:
             # TODO HACK
-            self.filters = self.problem.model.params[0]
+            self.filters = self.problem.params[0]
             n_filters = int(self.filters.shape[-1])
             self.filter_plotter = FilterPlotter(n_filters)
             self.plottables.append(self.filter_plotter)
