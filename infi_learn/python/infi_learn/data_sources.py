@@ -8,6 +8,7 @@ import numpy as np
 import rospy
 from sensor_msgs.msg import Image, LaserScan
 
+from cv2 import pyrDown
 from cv_bridge import CvBridge, CvBridgeError
 from broadcast.msg import FloatVectorStamped
 from argus_utils import TimeSeries
@@ -61,7 +62,7 @@ class MultiDataSource(object):
 
         out = []
         for t, data in primaries:
-            closest = [self.buffers[i].get_closest_either(t)
+            closest = [self.buffers[i].get_closest_before(t)
                        for i in range(len(self.sources) - 1)]
             if any([i is None or (abs(t - i.time) > self.tol)
                     for i in closest]):
@@ -125,12 +126,13 @@ class ImageSource(DataSource):
     """Subscribes to an image topic.
     """
 
-    def __init__(self, topic=None, image_mode='gray'):
+    def __init__(self, topic=None, subsample=1, image_mode='gray'):
         super(ImageSource, self).__init__()
         self.dim = None
         self.image_mode = image_mode
         self.num_image_channels()  # NOTE Arg checking
         self.image_bridge = CvBridge()
+        self.subsample = subsample
 
         if topic is not None:
             self.camera_sub = rospy.Subscriber(topic, Image,
@@ -160,6 +162,10 @@ class ImageSource(DataSource):
 
         if self.dim is None:
             self.dim = image.shape
+        
+        for _ in range(self.subsample - 1):
+            image = pyrDown(image)
+        
         image = image.astype(float) / 255.0
         self.buffer_data(t=msg.header.stamp.to_sec(),
                          data=image)
