@@ -12,14 +12,18 @@ def compute_auc(tprs, fprs):
     # NOTE Can be negative if fprs are sorted descending
     return abs(si.trapz(y=tprs, x=fprs))
 
-def compute_threshold_roc(probs, labels, n=30):
+def compute_threshold_roc(probs, labels, n=100):
     """Computes a receiver operating characteristic (ROC) curve displaying true positive rate
     versus false positive rate over a range of probability thresholds. 
     """
     probs = np.asarray(probs)
     labels = np.asarray(labels, dtype=bool)
 
-    thresholds = np.linspace(0, 1.0, num=n)
+    if not np.iterable(n):
+        thresholds = np.linspace(0, 1.0, num=n)
+    else:
+        thresholds = n
+        
     num_positives = float(np.sum(labels))
     num_negatives = len(labels) - num_positives
     tprs = []

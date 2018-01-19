@@ -290,6 +290,7 @@ class ScatterPlotter(Plottable):
             lh.remove()
         scatter = self.ax.scatter(x, y, c=c, cmap=self.cm, label=name, **kwargs)
         self.objects[name] = (scatter, x, y, c)
+        self.ax.relim() 
 
         if self.cbar is None:
             self.cbar = plt.colorbar(mappable=scatter, ax=self.ax)

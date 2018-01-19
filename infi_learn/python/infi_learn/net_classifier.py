@@ -156,8 +156,8 @@ class BinaryClassificationLearner(object):
     def scope(self):
         return self.problem.model.scope
 
-    def report_data(self, state, label):
-        self.reporter.report_label(x=state, y=label)
+    def report_state_value(self, state, value):
+        self.reporter.report_label(x=state, y=value)
 
     def get_plottables(self):
         return self.plottables
