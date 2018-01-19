@@ -6,34 +6,39 @@ import cv2
 import numpy as np
 from itertools import izip
 
-def perturb_image(img, noise_mag):
+def perturb_image(img, enable_flip=False, noise_mag=None):
     if not (isinstance(img, tuple) or isinstance(img, list)):
         img = [img]
     N = len(img)
     shape = list(img[0].shape)
 
     # Flip it
-    flip_ind = np.random.randint(-1,1,N)
-    img = [cv2.flip(i, fi) for i, fi in izip(img, flip_ind)]
+    if enable_flip:
+        flip_ind = np.random.randint(-1,1,N)
+        img = [cv2.flip(i, fi) for i, fi in izip(img, flip_ind)]
 
     # Add noise
-    noise = np.random.normal(scale=noise_mag, size=[N] + shape)
-    img = [i + n for i, n in izip(img, noise)]
+    if noise_mag is not None:
+        noise = np.random.normal(scale=noise_mag, size=[N] + shape)
+        img = [i + n for i, n in izip(img, noise)]
     
     return img
 
-def perturb_vector(vec, flip_mask, noise_mag):
+def perturb_vector(vec, flip_mask=None, noise_mag=None):
     vec = np.atleast_2d(vec)
     N = len(vec)
     shape = len(vec[0])
 
     # Flip signs
-    flips = np.array(flip_mask) * np.random.choice([-1, 1], size=(N, shape))
-    vec = np.multiply(flips, vec)
+    if flip_mask is not None:
+        flips = np.random.choice([-1, 1], size=(N, shape))
+        flips[:,np.array(flip_mask, dtype=bool)] = 1
+        vec = np.multiply(flips, vec)
 
     # Add noise
-    noise = np.random.normal(scale=noise_mag, size=(N, shape))
-    vec = vec + noise
+    if noise_mag is not None:
+        noise = np.random.normal(scale=noise_mag, size=(N, shape))
+        vec = vec + noise
 
     return vec
 
