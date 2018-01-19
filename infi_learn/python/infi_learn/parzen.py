@@ -1,10 +1,14 @@
 """Classes and functions for Parzen-window classification
 """
 
-from itertools import izip
 import numpy as np
+
 import sklearn.neighbors as skn
-from infi_learn.classification import compute_classification_loss
+
+from infi_learn.plotting import *
+from infi_learn.classification import *
+import adel
+import optim
 
 
 def rbf_window(x, xq, bw):
@@ -54,7 +58,7 @@ class ParzenNeighborsClassifier(object):
     """A binary classifier using Parzen windows on nearest-neighbors.
     """
 
-    def __init__(self, bandwidth, epsilon, radius=None, window=None):
+    def __init__(self, bandwidth, epsilon=0, radius=None, window=None):
         self.nn_model = skn.NearestNeighbors()
 
         if np.iterable(bandwidth):
@@ -80,14 +84,14 @@ class ParzenNeighborsClassifier(object):
     @property
     def log_params(self):
         p = np.hstack([self.epsilon, self.bw])
-        return np.log(p)
+        return np.log10(p)
 
     @log_params.setter
     def log_params(self, p):
         """Set the bandwidth and regularization log-parameters.
         Assumes [eps, rad, bw] ordering for p.
         """
-        params = np.exp(p)
+        params = np.power(10, p)
         self.epsilon = params[0]
         self.bw = params[1:]
         self.radius = 3 * max(self.bw)
@@ -147,7 +151,7 @@ class ParzenNeighborsClassifier(object):
         return probs
 
 
-def optimize_parzen_neighbors(classifier, dataset, optimizer):
+def optimize_parzen_neighbors(classifier, dataset, optimizer, n=1000):
     """Optimizes a classifier using a dataset and optimizer
 
     Returns
@@ -159,9 +163,15 @@ def optimize_parzen_neighbors(classifier, dataset, optimizer):
     x = dataset.all_positives + dataset.all_negatives
     y = [True] * dataset.num_positives + [False] * dataset.num_negatives
 
+    # def objective(p):
+    #     return compute_classification_loss(classifier=classifier,
+    #                                        x=x, y=y, params=p)
     def objective(p):
-        return compute_classification_loss(classifier=classifier,
-                                           x=x, y=y, params=p)
+        classifier.log_params = p
+        all_probs = classifier.query(dataset.all_inputs)
+        tpr, fpr = compute_threshold_roc(probs=all_probs, labels=dataset.all_classes,
+                                         n=n)
+        return -compute_auc(tpr, fpr)
 
     p, err = optimizer.optimize(x_init=classifier.log_params, func=objective)
     classifier.log_params = p
@@ -210,15 +220,15 @@ class ParzenClassifierLearner(object):
 
         if self.visualize:
             # TODO Put scope in name
-            self.heat_plotter = rr.ImagePlotter(vmin=0, vmax=1,
-                                                title='Classifier')
-            self.point_plotter = rr.LineSeriesPlotter(other=self.heat_plotter)
-            self.error_plotter = rr.LineSeriesPlotter(title='Logistic losses over time',
-                                                      xlabel='Spin iter',
-                                                      ylabel='Logistic loss')
-            self.roc_plotter = rr.LineSeriesPlotter(title='ROC',
-                                                    xlabel='False positive rate',
-                                                    ylabel='True positive rate')
+            self.heat_plotter = ImagePlotter(vmin=0, vmax=1,
+                                             title='Classifier')
+            self.point_plotter = LineSeriesPlotter(other=self.heat_plotter)
+            self.error_plotter = LineSeriesPlotter(title='Logistic losses over time',
+                                                   xlabel='Spin iter',
+                                                   ylabel='Logistic loss')
+            self.roc_plotter = LineSeriesPlotter(title='ROC',
+                                                 xlabel='False positive rate',
+                                                 ylabel='True positive rate')
 
     def get_plottables(self):
         if self.visualize:
@@ -226,14 +236,14 @@ class ParzenClassifierLearner(object):
         else:
             return []
 
-    def train(self, training_data, holdout_data=None):
+    def train(self, training_data, holdout_data=None, **kwargs):
         self.tuning_holdout.clear()
         self.validation_base.clear()
-        for s, c in training_data.all_data():
+        for s, c in training_data.all_data:
             self.report_binary.report_data(s=s, c=c)
 
         if holdout_data is not None:
-            for s, c in holdout_data.all_data():
+            for s, c in holdout_data.all_data:
                 self.validation_binary.report_data(s=s, c=c)
 
         self.update_counter += 1
@@ -243,7 +253,7 @@ class ParzenClassifierLearner(object):
              self.validation_binary.num_positives, self.validation_binary.num_negatives)
 
         self.update_classifier()
-        self.optimize_hyperparameters()
+        self.optimize_hyperparameters(**kwargs)
 
     def update_classifier(self):
         inputs, classes = zip(*self.training_binary.all_data)
@@ -253,57 +263,58 @@ class ParzenClassifierLearner(object):
         if not self.visualize:
             return
 
-        pos, neg = data.all_data
-        all_data = np.array(pos + neg)
-        pos = np.array(pos)
-        neg = np.array(neg)
+        all_data = np.array(data.all_inputs)
+        pos = np.array(data.all_positives)
+        neg = np.array(data.all_negatives)
 
-        mins = np.min(all_data, axis=0)
-        maxs = np.max(all_data, axis=0)
-        vis_lims = [np.linspace(start=l, stop=u, num=self.vis_res)
-                    for l, u in zip(mins, maxs)]
-        vis_pts = np.meshgrid(*vis_lims)
-        vis_x = np.vstack([vi.flatten() for vi in vis_pts]).T
+        if len(pos[0]) == 2:
+            mins = np.min(all_data, axis=0)
+            maxs = np.max(all_data, axis=0)
+            vis_lims = [np.linspace(start=l, stop=u, num=self.vis_res)
+                        for l, u in zip(mins, maxs)]
+            vis_pts = np.meshgrid(*vis_lims)
+            vis_x = np.vstack([vi.flatten() for vi in vis_pts]).T
 
-        vis_probs = self.classifier.query(vis_x)
-        pimg = np.reshape(vis_probs, (self.vis_res, self.vis_res))
+            vis_probs = self.classifier.query(vis_x)
+            pimg = np.reshape(vis_probs, (self.vis_res, self.vis_res))
 
-        self.heat_plotter.set_image(img=pimg,
-                                    extents=(mins[0], maxs[0], mins[1], maxs[1]))
-        if len(pos) > 0:
-            self.point_plotter.set_line(name='pos', x=pos[:, 0], y=pos[:, 1],
-                                        color='k', marker='o', markerfacecolor='none',
-                                        linestyle='none')
-        if len(neg) > 0:
-            self.point_plotter.set_line(name='neg', x=neg[:, 0], y=neg[:, 1],
-                                        color='k', marker='x', linestyle='none')
+            self.heat_plotter.set_image(img=pimg,
+                                        extents=(mins[0], maxs[0], mins[1], maxs[1]))
+            if len(pos) > 0:
+                self.point_plotter.set_line(name='pos', x=pos[:, 0], y=pos[:, 1],
+                                            color='g', marker='+', linestyle='none',
+                                            alpha=0.5)
+            if len(neg) > 0:
+                self.point_plotter.set_line(name='neg', x=neg[:, 0], y=neg[:, 1],
+                                            color='y', marker='x', linestyle='none',
+                                            alpha=0.5)
 
         # Display ROC
         all_probs = self.classifier.query(all_data)
-        all_labels = [True] * data.num_positives + [False] * data.num_negatives
-        tpr, fpr = rr.compute_threshold_roc(probs=all_probs, labels=all_labels)
-        self.roc_plotter.set_line(name='ROC', x=fpr, y=tpr)
-        auc = rr.compute_auc(tpr, fpr)
+        tpr, fpr = compute_threshold_roc(probs=all_probs, labels=data.all_classes, n=1000)
+        self.roc_plotter.set_line(name='ROC', x=fpr, y=tpr, marker='.')
+        auc = compute_auc(tpr, fpr)
         print 'Classifier AUC: %f' % auc
 
-    def optimize_hyperparameters(self):
-        rr.optimize_parzen_neighbors(classifier=self.classifier,
-                                     dataset=self.tuning_binary,
-                                     optimizer=self.optimizer)
+    def optimize_hyperparameters(self, **kwargs):
+        optimize_parzen_neighbors(classifier=self.classifier,
+                                  dataset=self.tuning_binary,
+                                  optimizer=self.optimizer,
+                                  **kwargs)
         print 'Classifier params: %s' % self.classifier.print_params()
 
         tr_x = self.tuning_binary.all_positives + self.tuning_binary.all_negatives
         tr_y = [True] * self.tuning_binary.num_positives + \
             [False] * self.tuning_binary.num_negatives
-        tr_loss = rr.compute_classification_loss(classifier=self.classifier,
-                                                 x=tr_x, y=tr_y)
+        tr_loss = compute_classification_loss(classifier=self.classifier,
+                                              x=tr_x, y=tr_y)
 
         val_x = self.validation_binary.all_positives + \
             self.validation_binary.all_negatives
         val_y = [True] * self.validation_binary.num_positives \
             + [False] * self.validation_binary.num_negatives
-        val_loss = rr.compute_classification_loss(classifier=self.classifier,
-                                                  x=val_x, y=val_y)
+        val_loss = compute_classification_loss(classifier=self.classifier,
+                                               x=val_x, y=val_y)
         print 'Classifier training loss: %f validation loss: %f' % \
             (tr_loss, val_loss)
 
