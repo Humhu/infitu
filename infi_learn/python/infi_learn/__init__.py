@@ -1,4 +1,5 @@
 from classification import *
+from data_augmentation import *
 from data_sources import *
 from embedding import *
 from frontends import *
