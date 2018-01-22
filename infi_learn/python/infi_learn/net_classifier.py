@@ -10,6 +10,7 @@ import networks as rrn
 import utils as rru
 from infi_learn.plotting import LineSeriesPlotter, FilterPlotter, ScatterPlotter
 from infi_learn.classification import compute_threshold_roc
+from infi_learn.data_augmentation import DataAugmenter
 
 
 class BinaryClassificationNetwork(rrn.VectorImageNetwork):
@@ -63,8 +64,8 @@ class BinaryClassificationProblem(object):
                                         shape=[None, 1],
                                         name='%s/binary' % model.scope)
         self.net, self.params, state, ups = model.make_net(img_in=self.image_ph,
-                                                      vec_in=self.vec_ph,
-                                                      reuse=False)
+                                                           vec_in=self.vec_ph,
+                                                           reuse=False)
         self.loss = tf.losses.sparse_softmax_cross_entropy(labels=self.binary_ph,
                                                            logits=self.net[-1])
 
@@ -78,38 +79,39 @@ class BinaryClassificationProblem(object):
     def initialize(self, sess):
         sess.run(self.initializers)
 
-    def run_training(self, sess, data):
+    def run_training(self, sess, ins, outs):
         feed = self.model.init_feed(training=True)
-        self._fill_feed(data=data, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, feed=feed)
         return sess.run([self.loss, self.train], feed_dict=feed)[0]
 
-    def run_loss(self, sess, data):
+    def run_loss(self, sess, ins, outs):
         feed = self.model.init_feed(training=False)
-        self._fill_feed(data=data, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, feed=feed)
         return sess.run(self.loss, feed_dict=feed)
 
-    def run_logits(self, sess, data):
+    def run_logits(self, sess, ins):
         feed = self.model.init_feed(training=False)
-        self.model.get_ops(inputs=data.all_inputs,
+        self.model.get_ops(inputs=ins,
                            img_ph=self.image_ph,
                            vec_ph=self.vec_ph,
                            feed=feed)
         return sess.run(self.net[-1], feed_dict=feed)
 
-    def _fill_feed(self, data, feed):
-        self.model.get_ops(inputs=data.all_inputs,
+    def _fill_feed(self, ins, outs, feed):
+        self.model.get_ops(inputs=ins,
                            img_ph=self.image_ph,
                            vec_ph=self.vec_ph,
                            feed=feed)
-        feed[self.binary_ph] = np.atleast_2d(data.all_labels).T
+        feed[self.binary_ph] = np.atleast_2d(outs).T
 
 # This is very similar to EmbeddingLearner, consolidate
 
 
 class BinaryClassificationLearner(object):
-    def __init__(self, problem, holdout,
+    def __init__(self, problem, holdout, augmentation,
                  batch_size=30, iters_per_spin=10, validation_period=10):
         self.problem = problem
+        self.augmenter = DataAugmenter(**augmentation)
 
         self.train_base = adel.BasicDataset()
         self.val_base = adel.BasicDataset()
@@ -162,13 +164,6 @@ class BinaryClassificationLearner(object):
     def get_plottables(self):
         return self.plottables
 
-    def get_classes(self, sess, on_training_data=True):
-        if on_training_data:
-            data = self.train_data
-        else:
-            data = self.val_data
-        return self.problem.run_output(sess=sess, data=data)
-
     def get_status(self):
         """Returns a string describing the status of this learner
         """
@@ -187,8 +182,11 @@ class BinaryClassificationLearner(object):
                 break
 
             self.train_sampler.sample_data(key=None, k=self.batch_size)
+            aug_s = self.augmenter.augment_data(self.train_sampled.all_inputs)
+
             train_loss = self.problem.run_training(sess=sess,
-                                                   data=self.train_sampled)
+                                                   ints=aug_s,
+                                                   outs=self.train_sampled.all_labels)
 
         self.spin_counter += 1
         print 'Training iter: %d loss: %f ' % \
@@ -222,7 +220,7 @@ class BinaryClassificationLearner(object):
                                            c=probs,
                                            marker='o')
             if not self.class_inited:
-                # TODO This isn't working
+                # TODO Change this to a histogram over the logits
                 self.class_plotter.ax.set_xticks(
                     [0, 1], ['failure', 'nominal'])
                 self.class_inited = True

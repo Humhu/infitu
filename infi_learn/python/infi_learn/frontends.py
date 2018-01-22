@@ -57,15 +57,14 @@ class SARSFrontend(BaseFrontend):
         Terminal SA data have False and payload (s, a)
     """
 
-    def __init__(self, source, dt, break_mode='message',
-                 lag=1.0, sync_time_tolerance=0.1, gamma=0):
+    def __init__(self, source, break_mode='message', lag=1.0, **kwargs):
         BaseFrontend.__init__(self)
         self.source = source
         self.inited = False
         self.action_dim = None
 
         self.lag = lag
-        self.sync = ad.SARSSynchronizer(dt=dt, tol=sync_time_tolerance, gamma=gamma)
+        self.sync = ad.SARSSynchronizer(**kwargs)
 
         self.reward_sub = rospy.Subscriber('reward', RewardStamped,
                                            callback=self.reward_callback)

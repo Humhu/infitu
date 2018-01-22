@@ -1,6 +1,8 @@
 """Classes for learning state-value functions
 """
 
+# TODO Rename this to regression, since that's really all this is
+
 import numpy as np
 import tensorflow as tf
 
@@ -9,6 +11,7 @@ import adel
 import networks as rrn
 import utils as rru
 from infi_learn.plotting import LineSeriesPlotter, FilterPlotter, ScatterPlotter
+from infi_learn.data_augmentation import DataAugmenter
 
 
 class BanditValueNetwork(rrn.VectorImageNetwork):
@@ -53,7 +56,8 @@ class BanditValueProblem(object):
         The model to learn
     """
 
-    def __init__(self, model, loss_type, learning_rate=1e-3, **kwargs):
+    def __init__(self, model, loss_type, learning_rate=1e-3,
+                 mean_range=None, log_sd_range=None, **kwargs):
         self.model = model
 
         self.image_ph = model.make_img_input(name='p_image')
@@ -67,13 +71,29 @@ class BanditValueProblem(object):
         if loss_type == 'squared_error':
             self.loss = tf.losses.mean_squared_error(labels=self.value_ph,
                                                      predictions=self.net[-1])
-            self.loss_type = 'squared error'
+            self.out = self.net[-1]
         elif loss_type == 'absolute_error':
             self.loss = tf.losses.absolute_difference(labels=self.value_ph,
                                                       predictions=self.net[-1])
-            self.loss_type = 'absolute error'
+            self.out = self.net[-1]
+        elif loss_type == 'log_likelihood':
+            mean_scale = (mean_range[1] - mean_range[0]) / 2
+            mean_offset = (mean_range[1] + mean_range[0]) / 2
+            lsd_scale = (log_sd_range[1] - log_sd_range[0]) / 2
+            lsd_offset = (log_sd_range[1] + log_sd_range[0]) / 2
+
+            # NOTE Have to reshape since value_ph is 2D, sigh
+            out_mean = tf.reshape(self.net[-1][:, 0], [-1, 1]) * mean_scale + mean_offset
+            out_log_sd = tf.reshape(self.net[-1][:, 1], [-1, 1]) * lsd_scale + lsd_offset
+            out_sd = tf.exp(out_log_sd)
+            dist = tf.distributions.Normal(loc=out_mean, scale=out_sd)
+            ll = dist.log_prob(value=self.value_ph)
+            self.loss = -tf.reduce_mean(ll)
+
+            self.out = tf.concat([out_mean, out_sd], axis=1)
         else:
             raise ValueError('Unknown loss type: %s' % loss_type)
+        self.loss_type = loss_type
 
         opt = tf.train.AdamOptimizer(learning_rate=float(learning_rate))
         with tf.control_dependencies(ups):
@@ -85,41 +105,42 @@ class BanditValueProblem(object):
     def initialize(self, sess):
         sess.run(self.initializers)
 
-    def run_training(self, sess, data):
+    def run_training(self, sess, ins, outs):
         feed = self.model.init_feed(training=True)
-        self._fill_feed(data=data, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, feed=feed)
         return sess.run([self.loss, self.train], feed_dict=feed)[0]
 
-    def run_loss(self, sess, data):
+    def run_loss(self, sess, ins, outs):
         feed = self.model.init_feed(training=False)
-        self._fill_feed(data=data, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, feed=feed)
         return sess.run(self.loss, feed_dict=feed)
 
-    def run_value(self, sess, data):
+    def run_value(self, sess, ins):
         feed = self.model.init_feed(training=False)
-        self.model.get_ops(inputs=data.all_inputs,
+        self.model.get_ops(inputs=ins,
                            img_ph=self.image_ph,
                            vec_ph=self.vec_ph,
                            feed=feed)
-        return sess.run(self.net[-1], feed_dict=feed)
+        return sess.run(self.out, feed_dict=feed)
 
-    def _fill_feed(self, data, feed):
+    def _fill_feed(self, ins, outs, feed):
         """Helper to create class permutations and populate
         a feed dict.
         """
-        self.model.get_ops(inputs=data.all_inputs,
+        self.model.get_ops(inputs=ins,
                            img_ph=self.image_ph,
                            vec_ph=self.vec_ph,
                            feed=feed)
-        feed[self.value_ph] = np.atleast_2d(data.all_labels).T
+        feed[self.value_ph] = np.atleast_2d(outs).T
 
 # This is very similar to EmbeddingLearner, consolidate
 
 
 class BanditValueLearner(object):
-    def __init__(self, problem, holdout,
+    def __init__(self, problem, holdout, augmentation,
                  batch_size=30, iters_per_spin=10, validation_period=10):
         self.problem = problem
+        self.augmenter = DataAugmenter(**augmentation)
 
         self.train_base = adel.BasicDataset()
         self.val_base = adel.BasicDataset()
@@ -172,7 +193,7 @@ class BanditValueLearner(object):
             data = self.train_data
         else:
             data = self.val_data
-        return self.problem.run_output(sess=sess, data=data)
+        return self.problem.run_output(sess=sess, ins=data.all_inputs)
 
     def get_status(self):
         """Returns a string describing the status of this learner
@@ -192,8 +213,11 @@ class BanditValueLearner(object):
                 break
 
             self.train_sampler.sample_data(key=None, k=self.batch_size)
+            aug_s = self.augmenter.augment_data(self.train_sampled.all_inputs)
+
             train_loss = self.problem.run_training(sess=sess,
-                                                   data=self.train_sampled)
+                                                   ins=aug_s,
+                                                   outs=self.train_sampled.all_labels)
 
         self.spin_counter += 1
         print 'Training iter: %d loss: %f ' % \
@@ -209,14 +233,27 @@ class BanditValueLearner(object):
                 self.filter_plotter.set_filters(fil_vals)
 
             val_loss = self.problem.run_loss(sess=sess,
-                                             data=self.val_data)
+                                             ins=self.val_data.all_inputs,
+                                             outs=self.val_data.all_labels)
             print 'Validation loss: %f ' % val_loss
             self.error_plotter.add_line(
                 'validation', self.spin_counter, val_loss)
 
-            values = self.problem.run_value(sess=sess, data=self.val_data)
+            values = self.problem.run_value(sess=sess,
+                                            ins=self.val_data.all_inputs)
+            # print values
+            # status = 'Values: '
+            # for x, s in values:
+            #     status += '%2.2f (%2.2f), ' % (x, s)
+            # print status
+            if self.problem.loss_type== 'log_likelihood':
+                v = values[:,0]
+                c = values[:,1]
+            else:
+                v = values
+                c = self.val_data.all_labels
             self.value_plotter.set_scatter('val',
                                            x=self.val_data.all_labels,
-                                           y=values,
-                                           c=self.val_data.all_labels,
+                                           y=v,
+                                           c=c,
                                            marker='o')

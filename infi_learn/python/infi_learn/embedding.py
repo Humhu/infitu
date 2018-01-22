@@ -10,8 +10,11 @@ import rospy
 
 import utils as rru
 import networks as rrn
+
+from infi_learn.learning import Learner
 from infi_learn.plotting import LineSeriesPlotter, FilterPlotter, ScatterPlotter
 from infi_learn.data_augmentation import DataAugmenter
+
 
 class EmbeddingNetwork(rrn.VectorImageNetwork):
     """Derived VI network for learning embeddings
@@ -68,94 +71,89 @@ class EmbeddingProblem(object):
     """
     # TODO Make loss a parameter?
 
-    def __init__(self, model, loss_type, combo_mode='unique', learning_rate=1e-3,
-                 label_dim=1, distance_scale=1.0, attraction_k=1e-3, unique_k=1,
-                 anchor_weight=1e-6):
+    def __init__(self, model, loss_type, augmentation, learning, embedding_loss_clip=1.0,
+                 label_dim=1, distance_scale=1.0, attraction_k=1e-3, anchor_weight=1e-6):
         self.model = model
 
         self.p_image_ph = model.make_img_input(name='p_image')
         self.p_belief_ph = model.make_vec_input(name='p_belief')
-        # self.n_image_ph = model.make_img_input(name='n_image')
-        # self.n_belief_ph = model.make_vec_input(name='n_belief')
         self.net, self.params, state, ups = model.make_net(img_in=self.p_image_ph,
                                                            vec_in=self.p_belief_ph,
                                                            reuse=False)
-        # self.n_net = model.make_net(img_in=self.n_image_ph,
-        #                             vec_in=self.n_belief_ph,
-        #                             reuse=True)[0]
+
+        self.augmenter = DataAugmenter(image_ph=self.p_image_ph,
+                                       vector_ph=self.p_belief_ph,
+                                       **augmentation)
 
         self.p_labels_ph = tf.placeholder(tf.float32,
                                           name='%s/p_labels' % self.model.scope,
                                           shape=[None, label_dim])
-        # self.n_labels_ph = tf.placeholder(tf.float32,
-        #                                   name='%s/n_labels' % self.model.scope,
-        #                                   shape=[None, label_dim])
-        # TODO _feed_dict is probably not properly initialized
 
-        # Generate unique combinations, courtesy of stackoverflow
+        # Generate combinations, courtesy of stackoverflow
         X = self.net[-1]
         r = tf.reduce_sum(X * X, 1)
         # turn r into column vector
         r = tf.reshape(r, [-1, 1])
         x_dist = r - 2 * tf.matmul(X, tf.transpose(X)) + tf.transpose(r)
-        # x_dist = tf.sqrt(x_dist)
+        # x_dist = tf.sqrt(x_dist + 1e-16)
 
         y = self.p_labels_ph
         q = tf.reduce_sum(y * y, 1)
         q = tf.reshape(q, [-1, 1])
         y_dist = q - 2 * tf.matmul(y, tf.transpose(y)) + tf.transpose(q)
-        # y_dist = tf.sqrt(y_dist)
+        # y_dist = tf.sqrt(y_dist + 1e-16)
 
         self.state = state
-        self.combo_mode = combo_mode
-        self.unique_k = unique_k
-
-        # Loss function penalty for different labels being near each other
-        #x_delta = self.net[-1] - self.n_net[-1]
-        #y_delta = self.p_labels_ph - self.n_labels_ph
-        #x_dist = tf.norm(x_delta, axis=-1)
-        #y_dist = tf.norm(y_delta, axis=-1)
-
         if loss_type == 'relu':
             zero_point = y_dist * float(distance_scale)
             err = x_dist - zero_point
 
-            # penalty for dissimilar points being too close
+            # squared penalty for dissimilar points being too close
             close_loss = tf.nn.relu(-err)
+
             # penalty for similar points being too far
             far_loss = float(attraction_k) * tf.nn.relu(err)
-
             embedding_loss = tf.reduce_mean(close_loss + far_loss)
         elif loss_type == 'huber':
             # Huber with y_delta_sq * bandwidth as horizontal offset
-            embedding_loss = tf.losses.huber_loss(labels=-x_dist + y_dist * float(distance_scale),
-                                                  predictions=[0])
+            embedding_loss = tf.losses.huber_loss(labels=y_dist * float(distance_scale),
+                                                  predictions=x_dist)
+        elif loss_type == 'repel':
+            # Penalize all points, scaled by label difference
+            # Epsilon in denominator to avoid division by zero
+            embedding_loss = tf.reduce_mean(y_dist / (x_dist + 1e-6))
         else:
             raise ValueError('Unknown loss type: %s' % loss_type)
 
-        # anchor_loss = tf.norm(self.net[-1], axis=-1) + tf.norm(self.n_net[-1], axis=-1)
-        # anchor_loss = tf.reduce_mean(anchor_loss)
+        # Clip embedding loss norm
+        clipped_embed_loss = tf.clip_by_norm(t=embedding_loss,
+                                             clip_norm=float(embedding_loss_clip))
+
+        # Penalize points for being too far from zero
         anchor_loss = tf.reduce_mean(tf.norm(X, axis=-1))
-        self.loss = float(anchor_weight) * anchor_loss + embedding_loss
 
-        opt = tf.train.AdamOptimizer(learning_rate=float(learning_rate))
-        with tf.control_dependencies(ups):
-            self.train = opt.minimize(self.loss, var_list=self.params)
+        self.loss = float(anchor_weight) * anchor_loss + clipped_embed_loss
 
-        self.initializers = [s.initializer for s in state] + \
-            [adel.optimizer_initializer(opt, self.params)]
+        self.learner = Learner(variables=self.params, updates=ups, loss=self.loss,
+                               **learning)
+
+        self.initializers = [s.initializer for s in state] + self.learner.init
 
     def initialize(self, sess):
         sess.run(self.initializers)
 
     def run_training(self, sess, ins, outs):
+        # TODO Make this cleaner somehow
         feed = self.model.init_feed(training=True)
-        self._fill_feed(ins=ins, outs=outs, feed=feed)
-        return sess.run([self.loss, self.train], feed_dict=feed)[0]
+        self._fill_feed(ins=ins, outs=outs, training=True, feed=feed)
+        ins = self.augmenter.augment_data(sess=sess, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, training=True, feed=feed)
+        return self.learner.step(sess=sess, feed=feed)
+        # return sess.run([self.loss, self.train], feed_dict=feed)[0]
 
     def run_loss(self, sess, ins, outs):
         feed = self.model.init_feed(training=False)
-        self._fill_feed(ins=ins, outs=outs, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, training=False, feed=feed)
         return sess.run(self.loss, feed_dict=feed)
 
     def run_embedding(self, sess, ins):
@@ -166,7 +164,7 @@ class EmbeddingProblem(object):
                            feed=feed)
         return sess.run(self.net[-1], feed_dict=feed)
 
-    def _fill_feed(self, ins, outs, feed):
+    def _fill_feed(self, ins, outs, training, feed):
         """Helper to create class permutations and populate
         a feed dict.
         """
@@ -175,42 +173,17 @@ class EmbeddingProblem(object):
                            img_ph=self.p_image_ph,
                            vec_ph=self.p_belief_ph,
                            feed=feed)
-        feed[self.p_labels_ph] = np.atleast_2d(outs).T
-
-        # Downsampling number of combinations
-        # if self.combo_mode == 'unique':
-        #     draw = rru.unique_combos(data.all_data, self.unique_k)
-        # elif self.combo_mode == 'split':
-        #     n = data.num_data / 2
-        #     draw = zip(data.all_data[:n], data.all_data[n:])
-        # else:
-        #     raise ValueError('Unknown combo mode: %s' % self.combo_mode)
-
-        # p_data, n_data = zip(*draw)
-        # p_states, p_labels = zip(*p_data)
-        # n_states, n_labels = zip(*n_data)
-
-        # self.model.get_ops(inputs=p_states,
-        #                    img_ph=self.p_image_ph,
-        #                    vec_ph=self.p_belief_ph,
-        #                    feed=feed)
-        # self.model.get_ops(inputs=n_states,
-        #                    img_ph=self.n_image_ph,
-        #                    vec_ph=self.n_belief_ph,
-        #                    feed=feed)
-        # feed[self.p_labels_ph] = np.atleast_2d(p_labels).T
-        # feed[self.n_labels_ph] = np.atleast_2d(n_labels).T
+        # TODO Needed .T for 1D case
+        feed[self.p_labels_ph] = np.atleast_2d(outs)
 
 
 class EmbeddingLearner(object):
     """Maintains dataset splits and plotting around an EmbeddingProblem
     """
 
-    def __init__(self, problem, holdout, augmentation,
+    def __init__(self, problem, holdout,
                  batch_size=10, iters_per_spin=10, validation_period=10):
         self.problem = problem
-
-        self.augmenter = DataAugmenter(**augmentation)
 
         self.train_base = adel.BasicDataset()
         self.val_base = adel.BasicDataset()
@@ -220,7 +193,8 @@ class EmbeddingLearner(object):
 
         self.train_sampler = adel.DatasetSampler(base=self.train_base,
                                                  method='uniform')
-        self.train_sampled = adel.LabeledDatasetTranslator(base=self.train_sampler)
+        self.train_sampled = adel.LabeledDatasetTranslator(
+            base=self.train_sampler)
         self.val_sampler = adel.DatasetSampler(base=self.val_base,
                                                method='uniform')
         self.val_sampled = adel.LabeledDatasetTranslator(base=self.val_sampler)
@@ -299,11 +273,8 @@ class EmbeddingLearner(object):
                 break
 
             self.train_sampler.sample_data(key=None, k=self.batch_size)
-
-            aug_s = self.augmenter.augment_data(self.train_sampled.all_inputs)
-
             train_loss = self.problem.run_training(sess=sess,
-                                                   ins=aug_s,
+                                                   ins=self.train_sampled.all_inputs,
                                                    outs=self.train_sampled.all_labels)
 
         self.spin_counter += 1
@@ -343,6 +314,8 @@ class EmbeddingLearner(object):
                                         mean_val_loss)
             val_embed, val_labels = self.get_embedding(sess=sess,
                                                        on_training_data=False)
+            # HACK for 1D, don't need this
+            val_labels = np.mean(val_labels, axis=-1)
             self.embed_plotter.set_scatter('val',
                                            x=val_embed[:, 0],
                                            y=val_embed[:, 1],
