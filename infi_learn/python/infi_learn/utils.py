@@ -61,9 +61,10 @@ def shape_data_2d(data):
             data = np.expand_dims(data, axis=-1)
 
     if len(data.shape) == 4:
-        if data.shape[-1] != 1:
-            raise ValueError(
-                'Received data with %d channels, but need 1' % data.shape[-1])
+        pass
+        # if data.shape[-1] != 1:
+        #     raise ValueError(
+        #         'Received data with %d channels, but need 1' % data.shape[-1])
 
     return data
 

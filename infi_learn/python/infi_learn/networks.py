@@ -91,21 +91,19 @@ class VectorImageNetwork(NetworkBase):
 
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, img_size=None, vec_size=None, **kwargs):
+    def __init__(self, img_size=None, vec_size=None, preprocessing=None, **kwargs):
         NetworkBase.__init__(self, **kwargs)
+
+        if img_size is not None and len(img_size) == 2:
+            img_size = list(img_size)
+            img_size.append(1)
         self.img_size = img_size
         self.vec_size = vec_size
 
+        self.preprocessing_spec = preprocessing
+
         if not (self.using_image or self.using_vector):
             raise ValueError('Must use image and/or vector')
-
-        #self.image_ph = self.make_img_input(name='image')
-        #self.vector_ph = self.make_vec_input(name='vector')
-        #self.net, self.params, self.state, self.ups = self.make_net(img_in=self.image_ph,
-        #                                                            vec_in=self.vector_ph)
-
-    #def initialize(self, sess):
-    #    sess.run([p.initializer for p in self.params], feed_dict={})
 
     def parse_states(self, states):
         if self.using_vector and self.using_image:
@@ -138,7 +136,7 @@ class VectorImageNetwork(NetworkBase):
         else:
             return tf.placeholder(tf.float32,
                                   shape=[None, self.img_size[0],
-                                         self.img_size[1], 1],
+                                         self.img_size[1], self.img_size[2]],
                                   name='%s/%s' % (self.scope, name))
 
     def make_vec_input(self, name):
@@ -150,6 +148,16 @@ class VectorImageNetwork(NetworkBase):
             return tf.placeholder(tf.float32,
                                   shape=[None, self.vec_size],
                                   name='%s/%s' % (self.scope, name))
+
+    def get_img_preprocess(self, img_in):
+        """Constructs any image preprocessing layers
+        """
+        if self.preprocessing_spec is not None:
+            layers = adel.make_vgg_net(img_in=img_in,
+                                       **self.preprocessing_spec)
+            return layers
+        else:
+            return [img_in]
 
     @abc.abstractmethod
     def make_net(self, img_in=None, vec_in=None, reuse=False):

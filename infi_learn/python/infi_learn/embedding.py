@@ -31,31 +31,46 @@ class EmbeddingNetwork(rrn.VectorImageNetwork):
     # TODO Have embedding_dimension as an argument and add a final
     # layer on the tail end of the created networks to bring it to that
     # dimension with the appropriate rectification?
-    def __init__(self, **kwargs):
+    def __init__(self, dual_net, **kwargs):
         rrn.VectorImageNetwork.__init__(self, **kwargs)
-
-    # def __repr__(self):
-    #     s = 'Embedding network:'
-    #     for e in self.net:
-    #         s += '\n\t%s' % str(e)
-    #     return s
+        self.dual_net = dual_net
 
     def make_net(self, img_in=None, vec_in=None, reuse=False):
         """Creates the model network with the specified parameters
         """
+        # TODO Decide if we want this
+        # if self.using_image:
+        #     pre_layers = self.get_img_preprocess(img_in=img_in)
+        #     img_in = pre_layers.pop()
+        # else:
+        pre_layers = []
+
         if self.using_image and not self.using_vector:
-            return adel.make_conv2d_fc_net(img_in=img_in,
-                                           reuse=reuse,
-                                           **self.network_spec)
+            if not self.dual_net:
+                if self.preprocessing_spec is not None:
+                    pre_layers = self.get_img_preprocess(img_in)
+                    img_in = pre_layers[-1]
+                net, train, state, ups = adel.make_conv2d_fc_net(img_in=img_in,
+                                                                 reuse=reuse,
+                                                                 **self.network_spec)
+            else:
+                if self.preprocessing_spec is None:
+                    raise ValueError('Must specify preprocessing spec if using dual net')
+                pre_layers = self.get_img_preprocess(img_in)
+                net, train, state, ups = adel.make_conv2d_parallel_net(img1=img_in,
+                                                                       img2=pre_layers[-1],
+                                                                       reuse=reuse,
+                                                                       **self.network_spec)
         elif not self.using_image and self.using_vector:
-            return adel.make_fullycon(input=vec_in,
-                                      reuse=reuse,
-                                      **self.network_args)
+            net, train, state, ups = adel.make_fullycon(input=vec_in,
+                                                        reuse=reuse,
+                                                        **self.network_args)
         else:
-            return adel.make_conv2d_joint_net(img_in=img_in,
-                                              vector_in=vec_in,
-                                              reuse=reuse,
-                                              **self.network_args)
+            net, train, state, ups = adel.make_conv2d_joint_net(img_in=img_in,
+                                                                vector_in=vec_in,
+                                                                reuse=reuse,
+                                                                **self.network_args)
+        return pre_layers + net, train, state, ups
 
 
 class EmbeddingProblem(object):
@@ -71,8 +86,9 @@ class EmbeddingProblem(object):
     """
     # TODO Make loss a parameter?
 
-    def __init__(self, model, loss_type, augmentation, learning, embedding_loss_clip=1.0,
-                 label_dim=1, distance_scale=1.0, attraction_k=1e-3, anchor_weight=1e-6):
+    def __init__(self, model, dist_type, temporal_dist_type, loss_type, augmentation, learning,
+                 loss_clip=1.0, label_dim=1, label_scale=1.0, ball_size=1.0,
+                 attraction_k=1e-3, anchor_weight=1e-6, temporal_weight=0):
         self.model = model
 
         self.p_image_ph = model.make_img_input(name='p_image')
@@ -81,97 +97,185 @@ class EmbeddingProblem(object):
                                                            vec_in=self.p_belief_ph,
                                                            reuse=False)
 
-        self.augmenter = DataAugmenter(image_ph=self.p_image_ph,
-                                       vector_ph=self.p_belief_ph,
-                                       **augmentation)
+        self.n_image_ph = model.make_img_input(name='n_image')
+        self.n_belief_ph = model.make_vec_input(name='n_belief')
+        self.n_net = model.make_net(img_in=self.n_image_ph,
+                                    vec_in=self.n_belief_ph,
+                                    reuse=True)[0]
 
         self.p_labels_ph = tf.placeholder(tf.float32,
                                           name='%s/p_labels' % self.model.scope,
                                           shape=[None, label_dim])
 
+        if self.p_image_ph is not None:
+            self.pn_image_ph = tf.concat([self.p_image_ph, self.n_image_ph],
+                                         axis=3)
+        else:
+            self.pn_image_ph = None
+
+        if self.p_belief_ph is not None:
+            self.pn_belief_ph = tf.concat([self.p_belief_ph, self.n_belief_ph],
+                                          axis=2)
+        else:
+            self.pn_belief_ph = None
+        self.pn_augmenter = DataAugmenter(image_ph=self.pn_image_ph,
+                                          vector_ph=self.pn_belief_ph,
+                                          labels_ph=self.p_labels_ph,
+                                          **augmentation)
+
+        # self.p_augmenter = DataAugmenter(image_ph=self.p_image_ph,
+        #                                  vector_ph=self.p_belief_ph,
+        #                                  labels_ph=self.p_labels_ph,
+        #                                  **augmentation)
+        # self.n_augmenter = DataAugmenter(image_ph=self.n_image_ph,
+        #                                  vector_ph=self.n_belief_ph,
+        #                                  labels_ph=self.p_labels_ph,
+        #                                  **augmentation)
+
         # Generate combinations, courtesy of stackoverflow
         X = self.net[-1]
-        r = tf.reduce_sum(X * X, 1)
-        # turn r into column vector
-        r = tf.reshape(r, [-1, 1])
-        x_dist = r - 2 * tf.matmul(X, tf.transpose(X)) + tf.transpose(r)
-        # x_dist = tf.sqrt(x_dist + 1e-16)
+        Xn = self.n_net[-1]
 
-        y = self.p_labels_ph
-        q = tf.reduce_sum(y * y, 1)
-        q = tf.reshape(q, [-1, 1])
+        if dist_type == 'euclidean':
+            r = tf.reshape(tf.reduce_sum(X * X, 1), [-1, 1])
+            # sum of squares for each vector
+            XXT = tf.matmul(X, tf.transpose(X))
+            x_pdist = r - 2 * XXT + tf.transpose(r)
+            x_pdist = x_pdist / tf.cast(tf.shape(X)[1], tf.float32)
+
+            # Less than L2 norm 1
+            x_cond = tf.nn.relu(tf.diag_part(XXT) - ball_size)
+
+        elif dist_type == 'cosine':
+            X_norm = tf.nn.l2_normalize(X, dim=-1)
+            x_pdist = -0.5 * tf.matmul(X_norm, tf.transpose(X_norm)) + 0.5
+
+            # Between L2 norm 0.1 and 1
+            XXT = tf.matmul(X, tf.transpose(X))
+            XXTd = tf.diag_part(XXT)
+            x_cond = tf.nn.relu(0.1 - XXTd) + tf.nn.relu(XXTd - ball_size)
+        else:
+            raise ValueError('Unrecognized dist type: %s' % dist_type)
+
+        if temporal_dist_type == 'euclidean':
+            dXn = Xn - X
+            dXnXnT = tf.matmul(dXn, tf.transpose(dXn))
+            x_xn_dist = tf.diag_part(dXnXnT)
+
+        elif temporal_dist_type == 'cosine':
+            X_norm = tf.nn.l2_normalize(X, dim=-1)
+            Xn_norm = tf.nn.l2_normalize(Xn, dim=-1)
+            x_xn_dist = -0.5 * tf.matmul(X_norm, tf.transpose(Xn_norm)) + 0.5
+            x_xn_dist = tf.diag_part(x_xn_dist)
+        else:
+            raise ValueError(
+                'Unrecognized temporal distance type: %s' % temporal_dist_type)
+
+        y = self.p_labels_ph * float(label_scale)
+        q = tf.reshape(tf.reduce_sum(y * y, 1), [-1, 1])
         y_dist = q - 2 * tf.matmul(y, tf.transpose(y)) + tf.transpose(q)
-        # y_dist = tf.sqrt(y_dist + 1e-16)
+        y_dist = y_dist / label_dim
 
         self.state = state
-        if loss_type == 'relu':
-            zero_point = y_dist * float(distance_scale)
-            err = x_dist - zero_point
+        if loss_type == 'margin':
+            zero_point = y_dist
+            err = x_pdist - zero_point
 
             # squared penalty for dissimilar points being too close
             close_loss = tf.nn.relu(-err)
-
+            
             # penalty for similar points being too far
-            far_loss = float(attraction_k) * tf.nn.relu(err)
+            far_loss = float(attraction_k) * tf.log(tf.nn.relu(err) + 1)
             embedding_loss = tf.reduce_mean(close_loss + far_loss)
-        elif loss_type == 'huber':
-            # Huber with y_delta_sq * bandwidth as horizontal offset
-            embedding_loss = tf.losses.huber_loss(labels=y_dist * float(distance_scale),
-                                                  predictions=x_dist)
-        elif loss_type == 'repel':
-            # Penalize all points, scaled by label difference
-            # Epsilon in denominator to avoid division by zero
-            embedding_loss = tf.reduce_mean(y_dist / (x_dist + 1e-6))
+        elif loss_type == 'product':
+            embedding_loss = tf.reduce_mean(-x_pdist * y_dist)
         else:
             raise ValueError('Unknown loss type: %s' % loss_type)
 
-        # Clip embedding loss norm
-        clipped_embed_loss = tf.clip_by_norm(t=embedding_loss,
-                                             clip_norm=float(embedding_loss_clip))
+        # Add temporal smoothness
+        time_loss = float(temporal_weight) * tf.reduce_mean(x_xn_dist, axis=-1)
 
         # Penalize points for being too far from zero
-        anchor_loss = tf.reduce_mean(tf.norm(X, axis=-1))
+        # TODO Set desired ball size
+        anchor_loss = float(anchor_weight) * tf.reduce_mean(x_cond, axis=-1)
 
-        self.loss = float(anchor_weight) * anchor_loss + clipped_embed_loss
+        self.loss = tf.clip_by_norm(embedding_loss + anchor_loss + time_loss,
+                                    clip_norm=float(loss_clip))
 
-        self.learner = Learner(variables=self.params, updates=ups, loss=self.loss,
-                               **learning)
-
+        self.learner = Learner(variables=self.params, updates=ups,
+                               loss=self.loss, **learning)
         self.initializers = [s.initializer for s in state] + self.learner.init
 
     def initialize(self, sess):
         sess.run(self.initializers)
 
     def run_training(self, sess, ins, outs):
-        # TODO Make this cleaner somehow
         feed = self.model.init_feed(training=True)
-        self._fill_feed(ins=ins, outs=outs, training=True, feed=feed)
-        ins = self.augmenter.augment_data(sess=sess, feed=feed)
-        self._fill_feed(ins=ins, outs=outs, training=True, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, feed=feed)
+
+        # p_ins, outs = self.p_augmenter.augment_data(sess=sess, feed=feed)
+        # n_ins, outs = self.n_augmenter.augment_data(sess=sess, feed=feed)
+
+        ins, outs = self.pn_augmenter.augment_data(sess=sess, feed=feed)
+        # TODO Make this more efficient somehow?
+        if self.model.using_image and self.model.using_vector:
+            vec, img = zip(*ins)
+            vdim = vec.shape[1] / 2
+            p_vec = vec[:, :vdim]
+            n_vec = vec[:, vdim:]
+            p_img = img[:, :, :, 0]
+            n_img = img[:, :, :, 1]
+            p_ins = zip(p_vec, p_img)
+            n_ins = zip(n_vec, n_img)
+        elif self.model.using_image and not self.model.using_vector:
+            p_ins = ins[:, :, :, 0]
+            n_ins = ins[:, :, :, 1]
+        elif not self.model.using_image and self.model.using_vector:
+            vdim = ins.shape[1] / 2
+            p_ins = ins[:, :vdim]
+            n_ins = ins[:, vdim:]
+        else:
+            raise ValueError('Must use image or vector')
+        ins = zip(p_ins, n_ins)
+
+        # ins, outs = self.p_augmenter.augment_data(sess=sess, feed=feed)
+
+        self._fill_feed(ins=ins, outs=outs, feed=feed)
         return self.learner.step(sess=sess, feed=feed)
-        # return sess.run([self.loss, self.train], feed_dict=feed)[0]
 
     def run_loss(self, sess, ins, outs):
         feed = self.model.init_feed(training=False)
-        self._fill_feed(ins=ins, outs=outs, training=False, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, feed=feed)
         return sess.run(self.loss, feed_dict=feed)
 
     def run_embedding(self, sess, ins):
         feed = self.model.init_feed(training=False)
-        self.model.get_ops(inputs=ins,
-                           img_ph=self.p_image_ph,
-                           vec_ph=self.p_belief_ph,
-                           feed=feed)
-        return sess.run(self.net[-1], feed_dict=feed)
 
-    def _fill_feed(self, ins, outs, training, feed):
+        # TODO Hardcoded block size
+        block_size = 1000
+        blocks = []
+        for i in range((len(ins) / block_size) + 1):
+            start = i * block_size
+            stop = min(len(ins), (i + 1) * block_size)
+            self.model.get_ops(inputs=ins[start:stop],
+                               img_ph=self.p_image_ph,
+                               vec_ph=self.p_belief_ph,
+                               feed=feed)
+            blocks.append(sess.run(self.net[-1], feed_dict=feed))
+        return np.vstack(blocks)
+
+    def _fill_feed(self, ins, outs, feed):
         """Helper to create class permutations and populate
         a feed dict.
         """
-
-        self.model.get_ops(inputs=ins,
+        c, n = zip(*ins)
+        self.model.get_ops(inputs=c,
                            img_ph=self.p_image_ph,
                            vec_ph=self.p_belief_ph,
+                           feed=feed)
+        self.model.get_ops(inputs=n,
+                           img_ph=self.n_image_ph,
+                           vec_ph=self.n_belief_ph,
                            feed=feed)
         # TODO Needed .T for 1D case
         feed[self.p_labels_ph] = np.atleast_2d(outs)
@@ -211,7 +315,8 @@ class EmbeddingLearner(object):
 
         self.error_plotter = LineSeriesPlotter(title='Embedding losses over time %s' % self.scope,
                                                xlabel='Spin iter',
-                                               ylabel='Embedding loss')
+                                               ylabel='Embedding loss',
+                                               log_y=True)
         self.embed_plotter = ScatterPlotter(title='Validation embeddings %s' %
                                             self.problem.model.scope)
         self.plottables = [self.error_plotter, self.embed_plotter]
@@ -244,7 +349,9 @@ class EmbeddingLearner(object):
             data = self.val_base
 
         chunker = adel.DatasetChunker(base=data, block_size=500)  # TODO
-        x = [self.problem.run_embedding(sess=sess, ins=adel.LabeledDatasetTranslator(chunk).all_inputs)
+        x = [self.problem.run_embedding(sess=sess,
+                                        ins=zip(*adel.LabeledDatasetTranslator(chunk).all_inputs)[0])
+             # ins=adel.LabeledDatasetTranslator(chunk).all_inputs)
              for chunk in chunker.iter_subdata(key=None)]  # HACK key
         if len(x) == 0:
             x = []
@@ -265,7 +372,6 @@ class EmbeddingLearner(object):
     def spin(self, sess):
         """Executes a train/validate cycle
         """
-
         train_loss = None
         for _ in range(self.iters_per_spin):
             if self.train_data.num_data < self.batch_size:
@@ -294,14 +400,13 @@ class EmbeddingLearner(object):
                 self.filter_plotter.set_filters(fil_vals)
 
             # If not enough validation data for a full batch, bail
-            if self.val_data.num_data < self.batch_size:
-                return
+            s = min(self.val_data.num_data, self.batch_size)
 
             # HACK NOTE Can't compute loss for the whole validation dataset
             # so we take the mean of 100 samplings
             val_losses = []
             for _ in range(100):
-                self.val_sampler.sample_data(key=None, k=self.batch_size)
+                self.val_sampler.sample_data(key=None, k=s)
                 vl = self.problem.run_loss(sess=sess,
                                            ins=self.val_sampled.all_inputs,
                                            outs=self.val_sampled.all_labels)

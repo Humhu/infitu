@@ -54,32 +54,57 @@ class DataAugmenter(object):
     """Provides methods for perturbing data randomly
     """
 
-    def __init__(self, image_ph, vector_ph, image_noise_sd=0.01, vector_noise_sd=0.01):
+    def __init__(self, image_ph, vector_ph, labels_ph,
+                 image_flip_vert=False, image_flip_hor=False, image_noise_sd=0.0,
+                 vector_flip_mask=None, vector_noise_sd=0.0,
+                 label_noise_sd=0.0):
 
-        self.image_ph = image_ph
-        self.vector_ph = vector_ph
+        self.image = image_ph
+        self.vector = vector_ph
+        self.labels = labels_ph
 
         # TODO More operations?
-        if self.image_ph is not None:
-            self.pert_img = self.image_ph + tf.truncated_normal(shape=tf.shape(self.image_ph),
-                                                                stddev=image_noise_sd)
-        if self.vector_ph is not None:
-            self.pert_vec = self.vector_ph + tf.truncated_normal(shape=tf.shape(self.vector_ph),
+        if self.image is not None:
+            if image_noise_sd > 0.0:
+                self.image = self.image + tf.truncated_normal(shape=tf.shape(self.image),
+                                                              stddev=image_noise_sd)
+            if image_flip_vert:
+                self.image = tf.map_fn(lambda img: tf.image.random_flip_up_down(img),
+                                       self.image)
+            if image_flip_hor:
+                self.image = tf.map_fn(lambda img: tf.image.random_flip_left_right(img),
+                                       self.image)
+
+        if self.vector is not None:
+            if vector_noise_sd > 0.0:
+                self.vector = self.vector + tf.truncated_normal(shape=tf.shape(self.vector),
                                                                 stddev=vector_noise_sd)
+            if vector_flip_mask is not None:
+                # TODO test this...
+                flips = tf.round(tf.random_uniform(shape=tf.shape(self.vector),
+                                                   minval=0,
+                                                   maxval=vector_flip_mask))
+                signs = tf.pow(tf.constant(-1.0, dtype=tf.float32), flips)
+                self.vector = tf.multiply(signs, self.vector)
+
+        if self.labels is not None:
+            if label_noise_sd > 0.0:
+                self.labels = self.labels + tf.truncated_normal(shape=tf.shape(self.labels),
+                                                                stddev=label_noise_sd)
 
     def augment_data(self, sess, feed):
         """Retrieve the vector and image tensors depending on if we are training or not
         """
-        if self.image_ph is not None and self.vector_ph is not None:
-            return zip(*sess.run([self.vector_ph, self.image_ph], feed_dict=feed))
-        elif self.image_ph is None and self.vector_ph is not None:
-            return sess.run(self.vector_ph, feed_dict=feed)
-        elif self.image_ph is not None and self.vector_ph is None:
-            return sess.run(self.image_ph, feed_dict=feed)
+        if self.image is not None and self.vector is not None:
+            vec, img, lab = sess.run([self.vector, self.image, self.labels], feed_dict=feed)
+            state = zip(vec, img)
+            return state, lab
+        elif self.image is None and self.vector is not None:
+            return sess.run([self.vector, self.labels], feed_dict=feed)
+        elif self.image is not None and self.vector is None:
+            return sess.run([self.image, self.labels], feed_dict=feed)
         else:
             raise RuntimeError('Must specify either image or vector')
-        
-
 
     # def augment_data(self, data):
     #     # Use synchronized flip indices for both perturbations to preserve relations

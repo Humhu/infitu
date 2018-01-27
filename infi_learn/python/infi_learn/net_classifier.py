@@ -8,6 +8,8 @@ import adel
 
 import networks as rrn
 import utils as rru
+
+from infi_learn.learning import Learner
 from infi_learn.plotting import LineSeriesPlotter, FilterPlotter, ScatterPlotter
 from infi_learn.classification import compute_threshold_roc
 from infi_learn.data_augmentation import DataAugmenter
@@ -55,7 +57,7 @@ class BinaryClassificationProblem(object):
         The model to learn
     """
 
-    def __init__(self, model, learning_rate=1e-3, **kwargs):
+    def __init__(self, model, augmentation, learning, **kwargs):
         self.model = model
 
         self.image_ph = model.make_img_input(name='image')
@@ -66,15 +68,19 @@ class BinaryClassificationProblem(object):
         self.net, self.params, state, ups = model.make_net(img_in=self.image_ph,
                                                            vec_in=self.vec_ph,
                                                            reuse=False)
+
+        self.augmenter = DataAugmenter(image_ph=self.image_ph,
+                                       vector_ph=self.vec_ph,
+                                       labels_ph=self.binary_ph,
+                                       **augmentation)
+
+
         self.loss = tf.losses.sparse_softmax_cross_entropy(labels=self.binary_ph,
                                                            logits=self.net[-1])
 
-        opt = tf.train.AdamOptimizer(learning_rate=float(learning_rate))
-        with tf.control_dependencies(ups):
-            self.train = opt.minimize(self.loss, var_list=self.params)
-
-        self.initializers = [s.initializer for s in state] + \
-            [adel.optimizer_initializer(opt, self.params)]
+        self.learner = Learner(variables=self.params, updates=ups, loss=self.loss,
+                               **learning)
+        self.initializers = [s.initializer for s in state] + self.learner.init
 
     def initialize(self, sess):
         sess.run(self.initializers)
@@ -82,7 +88,9 @@ class BinaryClassificationProblem(object):
     def run_training(self, sess, ins, outs):
         feed = self.model.init_feed(training=True)
         self._fill_feed(ins=ins, outs=outs, feed=feed)
-        return sess.run([self.loss, self.train], feed_dict=feed)[0]
+        ins, outs = self.augmenter.augment_data(sess=sess, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, feed=feed)
+        return self.learner.step(sess=sess, feed=feed)
 
     def run_loss(self, sess, ins, outs):
         feed = self.model.init_feed(training=False)
@@ -108,10 +116,9 @@ class BinaryClassificationProblem(object):
 
 
 class BinaryClassificationLearner(object):
-    def __init__(self, problem, holdout, augmentation,
+    def __init__(self, problem, holdout,
                  batch_size=30, iters_per_spin=10, validation_period=10):
         self.problem = problem
-        self.augmenter = DataAugmenter(**augmentation)
 
         self.train_base = adel.BasicDataset()
         self.val_base = adel.BasicDataset()
@@ -182,10 +189,8 @@ class BinaryClassificationLearner(object):
                 break
 
             self.train_sampler.sample_data(key=None, k=self.batch_size)
-            aug_s = self.augmenter.augment_data(self.train_sampled.all_inputs)
-
             train_loss = self.problem.run_training(sess=sess,
-                                                   ints=aug_s,
+                                                   ins=self.train_sampled.all_inputs,
                                                    outs=self.train_sampled.all_labels)
 
         self.spin_counter += 1
@@ -204,13 +209,14 @@ class BinaryClassificationLearner(object):
                 self.filter_plotter.set_filters(fil_vals)
 
             val_loss = self.problem.run_loss(sess=sess,
-                                             data=self.val_data)
+                                             ins=self.val_data.all_inputs,
+                                             outs=self.val_data.all_labels)
             print 'Validation loss: %f ' % val_loss
             self.error_plotter.add_line('validation',
                                         self.spin_counter,
                                         val_loss)
 
-            logits = self.problem.run_logits(sess=sess, data=self.val_data)
+            logits = self.problem.run_logits(sess=sess, ins=self.val_data.all_inputs)
             probs = np.exp(logits)
             probs = probs[:, 1] / np.sum(probs, axis=1)
 

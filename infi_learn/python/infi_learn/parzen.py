@@ -19,8 +19,13 @@ def rbf_window(x, xq, bw):
 
     # return np.atleast_1d(ss.multivariate_normal.pdf(x=x-xq, cov=np.diag(bw)))
 
-    D = np.diag(bw)
     deltas = (x - xq).T
+    N = deltas.shape[0]
+    if len(bw) == 1:
+        bw = bw[0]
+    if not np.iterable(bw):
+        bw = [bw] * N
+    D = np.diag(bw)
     ips = np.einsum('ji,jk,ki->i', deltas, D, deltas)
     return np.exp(-ips * 0.5)
 
@@ -58,13 +63,13 @@ class ParzenNeighborsClassifier(object):
     """A binary classifier using Parzen windows on nearest-neighbors.
     """
 
-    def __init__(self, bandwidth, epsilon=0, radius=None, window=None):
-        self.nn_model = skn.NearestNeighbors()
+    def __init__(self, bandwidth=1, epsilon=0, radius=None, window=None):
+        self.nn_model = skn.NearestNeighbors(metric='euclidean') # TODO
 
         if np.iterable(bandwidth):
             self.bw = [float(bi) for bi in bandwidth]
         else:
-            self.bw = float(bandwidth)
+            self.bw = [float(bandwidth)]
 
         self.epsilon = float(epsilon)
 
@@ -74,7 +79,7 @@ class ParzenNeighborsClassifier(object):
             self.window = window
         if radius is None:
             # Rule of thumb
-            self.radius = 3 * np.mean(self.bw)
+            self.radius = 2 * max(self.bw)
         else:
             self.radius = radius
 
@@ -94,7 +99,8 @@ class ParzenNeighborsClassifier(object):
         params = np.power(10, p)
         self.epsilon = params[0]
         self.bw = params[1:]
-        self.radius = 3 * max(self.bw)
+        # self.radius = params[1]
+        self.radius = 2 * max(self.bw)
 
     def print_params(self):
         return 'epsilon: %f radius: %f bandwidth: %s ' \
@@ -165,7 +171,7 @@ def optimize_parzen_neighbors(classifier, dataset, optimizer, n=1000):
 
     # def objective(p):
     #     return compute_classification_loss(classifier=classifier,
-    #                                        x=x, y=y, params=p)
+    #                                        x=x, y=y, params=p, mode='logistic')
     def objective(p):
         classifier.log_params = p
         all_probs = classifier.query(dataset.all_inputs)
@@ -318,7 +324,8 @@ class ParzenClassifierLearner(object):
         print 'Classifier training loss: %f validation loss: %f' % \
             (tr_loss, val_loss)
 
-        self.error_plotter.add_line('training', self.update_counter, tr_loss)
-        self.error_plotter.add_line('validation',
-                                    self.update_counter,
-                                    val_loss)
+        if self.visualize:
+            self.error_plotter.add_line('training', self.update_counter, tr_loss)
+            self.error_plotter.add_line('validation',
+                                        self.update_counter,
+                                        val_loss)

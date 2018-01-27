@@ -10,6 +10,8 @@ import adel
 
 import networks as rrn
 import utils as rru
+
+from infi_learn.learning import Learner
 from infi_learn.plotting import LineSeriesPlotter, FilterPlotter, ScatterPlotter
 from infi_learn.data_augmentation import DataAugmenter
 
@@ -56,7 +58,7 @@ class BanditValueProblem(object):
         The model to learn
     """
 
-    def __init__(self, model, loss_type, learning_rate=1e-3,
+    def __init__(self, model, loss_type, augmentation, learning,
                  mean_range=None, log_sd_range=None, **kwargs):
         self.model = model
 
@@ -68,6 +70,11 @@ class BanditValueProblem(object):
         self.net, self.params, state, ups = model.make_net(img_in=self.image_ph,
                                                            vec_in=self.vec_ph,
                                                            reuse=False)
+
+        self.augmenter = DataAugmenter(image_ph=self.image_ph,
+                                       vector_ph=self.vec_ph,
+                                       **augmentation)
+
         if loss_type == 'squared_error':
             self.loss = tf.losses.mean_squared_error(labels=self.value_ph,
                                                      predictions=self.net[-1])
@@ -95,12 +102,9 @@ class BanditValueProblem(object):
             raise ValueError('Unknown loss type: %s' % loss_type)
         self.loss_type = loss_type
 
-        opt = tf.train.AdamOptimizer(learning_rate=float(learning_rate))
-        with tf.control_dependencies(ups):
-            self.train = opt.minimize(self.loss, var_list=self.params)
-
-        self.initializers = [s.initializer for s in state] + \
-            [adel.optimizer_initializer(opt, self.params)]
+        self.learner = Learner(variables=self.params, updates=ups, loss=self.loss,
+                               **learning)
+        self.initializers = [s.initializer for s in state] + self.learner.init
 
     def initialize(self, sess):
         sess.run(self.initializers)
@@ -108,7 +112,9 @@ class BanditValueProblem(object):
     def run_training(self, sess, ins, outs):
         feed = self.model.init_feed(training=True)
         self._fill_feed(ins=ins, outs=outs, feed=feed)
-        return sess.run([self.loss, self.train], feed_dict=feed)[0]
+        ins = self.augmenter.augment_data(sess=sess, feed=feed)
+        self._fill_feed(ins=ins, outs=outs, feed=feed)
+        return self.learner.step(sess=sess, feed=feed)
 
     def run_loss(self, sess, ins, outs):
         feed = self.model.init_feed(training=False)
@@ -137,10 +143,9 @@ class BanditValueProblem(object):
 
 
 class BanditValueLearner(object):
-    def __init__(self, problem, holdout, augmentation,
+    def __init__(self, problem, holdout,
                  batch_size=30, iters_per_spin=10, validation_period=10):
         self.problem = problem
-        self.augmenter = DataAugmenter(**augmentation)
 
         self.train_base = adel.BasicDataset()
         self.val_base = adel.BasicDataset()
@@ -213,10 +218,8 @@ class BanditValueLearner(object):
                 break
 
             self.train_sampler.sample_data(key=None, k=self.batch_size)
-            aug_s = self.augmenter.augment_data(self.train_sampled.all_inputs)
-
             train_loss = self.problem.run_training(sess=sess,
-                                                   ins=aug_s,
+                                                   ins=self.train_sampled.all_inputs,
                                                    outs=self.train_sampled.all_labels)
 
         self.spin_counter += 1
@@ -225,7 +228,6 @@ class BanditValueLearner(object):
         self.error_plotter.add_line('training', self.spin_counter, train_loss)
 
         if self.spin_counter % self.val_period == 0:
-
             # Plot filters if using them
             if self.problem.model.using_image:
                 fil_vals = np.squeeze(sess.run(self.filters))
