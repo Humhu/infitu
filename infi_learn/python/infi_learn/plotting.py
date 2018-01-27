@@ -193,9 +193,12 @@ class PlottingGroup(object):
 
 
 class LineSeriesPlotter(Plottable):
-    def __init__(self, **kwargs):
+    def __init__(self, log_y=False, **kwargs):
         Plottable.__init__(self, **kwargs)
         self.objects = {}
+
+        self.logged = False
+        self.log_y = log_y
 
     def _check_in(self, x):
         if np.iterable(x):
@@ -203,8 +206,14 @@ class LineSeriesPlotter(Plottable):
         else:
             return [x]
 
+    def _check_log(self):
+        if not self.logged and self.log_y:
+            self.logged = True
+            self.ax.set_yscale('log')
+
     def add_line(self, name, x, y, **kwargs):
         self.wait_for_init()
+        self._check_log()
 
         x = list(np.atleast_1d(x))
         y = list(np.atleast_1d(y))
@@ -221,6 +230,7 @@ class LineSeriesPlotter(Plottable):
 
     def set_line(self, name, x, y, **kwargs):
         self.wait_for_init()
+        self._check_log()
 
         x = list(np.atleast_1d(x))
         y = list(np.atleast_1d(y))
@@ -236,6 +246,7 @@ class LineSeriesPlotter(Plottable):
 
     def _create_line(self, name, x, y, **kwargs):
         self.wait_for_init()
+        self._check_log()
 
         self.objects[name] = (self.ax.plot(x, y, label=name, **kwargs)[0],
                               x, y)
@@ -243,6 +254,7 @@ class LineSeriesPlotter(Plottable):
 
     def clear_line(self, name):
         self.wait_for_init()
+        self._check_log()
 
         if name in self.objects:
             self.objects[name][0].remove()
@@ -317,6 +329,9 @@ class ImagePlotter(Plottable):
 
     def set_image(self, img, extents=None):
         self.wait_for_init()
+
+        if len(img.shape) < 2 or (len(img.shape) > 2 and img.shape[2] > 1):
+            return
 
         if self.pim is None:
             if self.noticks:
