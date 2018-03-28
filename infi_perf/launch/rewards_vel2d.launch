@@ -13,7 +13,7 @@
         use_vel: true
         vel_err_weights: [1,1,0,0,0,1]
         log_rewards: true
-        min_reward: -8
+        min_reward: -3
         max_reward: 8
     </rosparam>
 </node>
@@ -24,7 +24,7 @@
     pose_cov_weights: [0,0,0,0,0,0]
     vel_cov_weights: [1,1,0,0,0,1]
     log_rewards: true
-    min_reward: -8
+    min_reward: -3
     max_reward: 8
   </rosparam>
 </node>

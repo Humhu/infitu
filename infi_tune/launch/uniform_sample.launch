@@ -1,0 +1,31 @@
+<launch>
+
+<arg name="output_path"/>
+<arg name="critique_topic"/>
+<arg name="dim"/>
+
+<arg name="max_runtime" default="inf"/>
+<arg name="max_evals" default="inf"/>
+
+<arg name="random_seed" default=""/>
+
+<node pkg="optim" type="UniformRandomOptimization.py" name="sampler" 
+ output="screen" required="true">
+    <param name="output_path" value="$(arg output_path)"/>
+    <param name="convergence/max_time" value="$(arg max_runtime)"/>
+    <param name="convergence/max_evaluations" value="$(arg max_evals)"/>    
+    <param name="interface/topic" value="$(arg critique_topic)"/>    
+    <param name="dim" value="$(arg dim)"/>
+    <param name="random_seed" value="$(arg random_seed)"/>
+    <rosparam>
+        lower_bounds: -1
+        upper_bounds: 1
+        
+        interface:
+            verbose: true
+            wait_for_topic: true
+
+    </rosparam>
+</node>
+
+</launch>

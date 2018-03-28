@@ -21,6 +21,8 @@ class MetaEvaluator:
         if self.feedback_mode not in ['append']:
             raise ValueError('Unsupported feedback mode: %s' % self.feedback_mode)
 
+        self.log_reward = rospy.get_param('~using_log_rewards')
+
         evaluator_info = dict(rospy.get_param('~evaluators'))
         self.evaluators = {}
         for name, topic in evaluator_info.iteritems():
@@ -44,7 +46,10 @@ class MetaEvaluator:
         critiques, feedbacks = zip(*results)
         res = GetCritiqueResponse()
         if self.critique_mode == 'average':
-            res.critique = np.mean(critiques)
+            if self.log_reward:
+                res.critique = np.log(np.mean(np.exp(critiques)))
+            else:
+                res.critique = np.mean(critiques)
 
         if self.feedback_mode == 'append':
             for (fb, name) in izip(feedbacks, self.evaluators.iterkeys()):

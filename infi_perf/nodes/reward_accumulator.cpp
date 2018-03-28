@@ -23,6 +23,7 @@ public:
 		GetParam( ph, "time_integrate", _useIntegration, false );
 		GetParam( ph, "normalize_by_time", _normalizeTime, false );
 		GetParam( ph, "normalize_by_count", _normalizeCount, false );
+		GetParam( ph, "log_rewards", _logRewards, false );
 		GetParam( ph, "max_dt", _maxDt, 1.0 );
 
 		unsigned int buffSize;
@@ -118,6 +119,10 @@ private:
 		{
 			res.evaluation = res.evaluation / _rewardCount;
 		}
+		if( _logRewards )
+		{
+			res.evaluation = std::log( res.evaluation );
+		}
 		return true;
 	}
 
@@ -133,6 +138,7 @@ private:
 
 	bool _defaultOnEmpty;
 	double _defaultValue;
+	bool _logRewards;
 
 	double _maxDt;
 	bool _useIntegration;

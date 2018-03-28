@@ -138,7 +138,7 @@ public:
 			reward = std::log( reward );
 		}
 		// Negate the predicted error to make it a reward
-		reward = -reward;
+		// reward = -reward;
 		
 		reward = std::max( std::min( reward, _maxReward ), _minReward );
 
